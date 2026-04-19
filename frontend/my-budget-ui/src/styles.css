@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@import "@fortawesome/fontawesome-free/css/fontawesome.min.css";
+@import "@fortawesome/fontawesome-free/css/solid.min.css";
+
+html,
+body {
+  height: 100%;
+}
+
+app-root {
+  display: block;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI", Tahoma, sans-serif;
+  color: #3b2f54;
+  background: linear-gradient(135deg, #f8f5ff 0%, #eef9ff 45%, #fef6fb 100%);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}

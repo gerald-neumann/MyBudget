@@ -1,0 +1,72 @@
+.budget-help-tooltip {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: min(70vh, 18rem);
+  overflow-y: auto;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.12s ease,
+    visibility 0.12s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .budget-help-wrap:hover .budget-help-tooltip,
+  .budget-help-wrap:focus-within .budget-help-tooltip {
+    pointer-events: auto;
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+.budget-help-wrap.budget-help-wrap--pinned .budget-help-tooltip {
+  pointer-events: auto;
+  opacity: 1;
+  visibility: visible;
+}
+
+:host {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.budget-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.budget-col-position {
+  width: 22%;
+}
+
+.budget-col-month {
+  width: 4.5%;
+}
+
+.budget-col-total {
+  width: 12%;
+}
+
+.budget-col-action {
+  width: 10%;
+}
+
+.app-budget-data-scroll .budget-table > thead th {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  box-shadow: 0 1px 0 rgb(237 233 254);
+}
+
+tr.budget-row-selected {
+  box-shadow: inset 0 0 0 1px rgb(167 139 250);
+  background-color: rgb(245 243 255 / 0.95);
+}

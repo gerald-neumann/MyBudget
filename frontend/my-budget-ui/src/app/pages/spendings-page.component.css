@@ -1,0 +1,35 @@
+:host {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.spendings-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.spendings-col-date {
+  width: 12%;
+}
+
+.spendings-col-position {
+  width: 26%;
+}
+
+.spendings-col-amount {
+  width: 14%;
+}
+
+.spendings-col-note {
+  width: 48%;
+}
+
+.app-spendings-scroll .spendings-table > thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 1px 0 rgb(237 233 254);
+}

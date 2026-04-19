@@ -1,0 +1,12 @@
+.comparison-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.comparison-col-month {
+  width: 14%;
+}
+
+.comparison-col-value {
+  width: 28.6667%;
+}

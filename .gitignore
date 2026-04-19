@@ -1,0 +1,73 @@
+# --- .NET / Visual Studio ---
+**/bin/
+**/obj/
+**/out/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uild[Ll]og.*
+*.log
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+*.DotSettings.user
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotCover
+
+# --- Node / npm / yarn / pnpm ---
+node_modules/
+jspm_packages/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# --- Angular / frontend build ---
+.angular/
+dist/
+tmp/
+out-tsc/
+
+# --- Portainer / local Docker junk ---
+# Typical bind-mount folder names for Portainer CE data (never commit)
+portainer_data/
+portainer-data/
+# Local-only compose overrides
+docker-compose.override.yml
+
+# --- Docker image bundles (Synology / offline deploy) ---
+*-app-images.tar
+
+# --- Secrets & local env (keep *.example committed) ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- OS & editors ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/mcp.json

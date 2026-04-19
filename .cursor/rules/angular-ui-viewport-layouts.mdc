@@ -1,0 +1,30 @@
+---
+description: Compact vs expanded viewport layout conventions for the Angular + Tailwind UI
+globs: frontend/my-budget-ui/src/**/*.{html,ts,css}
+alwaysApply: false
+---
+
+# Viewport layouts (naming)
+
+Use these names in comments, PRs, and reasoning—**not** “mobile mode” / “PC mode”.
+
+| Name | Meaning |
+|------|--------|
+| **Compact viewport** | Narrow screens and touch-first use (phones, small tablets, short windows). Default Tailwind styles target this. |
+| **Expanded viewport** | Wide screens and pointer-first use (desktops, large tablets). Progressive enhancement via `sm:`, `md:`, `lg:`, `xl:` breakpoints. |
+
+# Implementation conventions
+
+- **Compact first**: Unprefixed classes = compact layout (stacked blocks, full-width controls, comfortable tap height).
+- **Expand with prefixes**: Add `sm:` / `lg:` / `xl:` for denser toolbars, multi-column grids, and shorter controls (e.g. `min-h-10` + `sm:min-h-0 sm:py-1`).
+- **Flex overflow**: Use `min-w-0` (and `min-h-0` where needed) on flex/grid children so scroll areas and charts don’t blow the page width.
+- **Wide data (tables, grids)**: Wrap in `overflow-x-auto` with `touch-pan-x`, `overscroll-x-contain`, and `[-webkit-overflow-scrolling:touch]`; keep intentional `min-w-[…]` on the table when horizontal scroll is required.
+- **Safe areas**: Prefer `env(safe-area-inset-bottom)` (and similar) on fixed overlays and full-height shells; `viewport-fit=cover` belongs in `index.html` when using safe-area padding.
+- **Modals on compact**: Prefer bottom-aligned sheets (`items-end` → `sm:items-center`), scrollable dialog body, and primary actions easy to reach (e.g. `flex-col-reverse` so confirm sits above cancel when stacked).
+
+```html
+<!-- Example: toolbar stacks on compact, flows on expanded -->
+<div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+  …
+</div>
+```

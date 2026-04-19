@@ -1,0 +1,535 @@
+<section class="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+  @if (categorySuggestOpen && categorySuggestRect) {
+    <ul
+      id="budget-category-suggest"
+      role="listbox"
+      class="fixed z-[100] max-h-48 overflow-y-auto rounded border border-violet-200 bg-white py-1 shadow-lg"
+      [style.top.px]="categorySuggestRect.top"
+      [style.left.px]="categorySuggestRect.left"
+      [style.width.px]="categorySuggestRect.width"
+      (mousedown)="$event.preventDefault()"
+    >
+      @for (cat of filteredCategories(categorySuggestQuery()); track cat.id) {
+        <li
+          role="option"
+          class="cursor-pointer px-2 py-1 text-xs text-violet-900 hover:bg-violet-50 sm:text-sm"
+          (click)="pickCategory(cat.name)"
+        >
+          {{ i18n.translateCategoryName(cat.name) }}
+        </li>
+      }
+    </ul>
+  }
+
+  @if (message) {
+    <div
+      class="shrink-0 rounded border px-3 py-2 text-sm"
+      [class]="messageType === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
+    >
+      {{ t(message) }}
+    </div>
+  }
+
+  <article
+    class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4"
+  >
+    <div class="shrink-0">
+      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.title') }}</h2>
+        <div
+          #budgetHelpWrap
+          class="budget-help-wrap relative inline-flex shrink-0 text-sm text-violet-600"
+          [class.budget-help-wrap--pinned]="budgetHelpTouchOpen()"
+        >
+          <button
+            type="button"
+            class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-sm text-violet-700 hover:bg-violet-100"
+            id="budget-help-trigger"
+            aria-controls="budget-help-tooltip"
+            [attr.aria-expanded]="budgetHelpAriaExpanded()"
+            [attr.aria-label]="t('budget.helpAria')"
+            (click)="onBudgetHelpClick($event)"
+          >
+            <span class="fa-solid fa-circle-info leading-none" aria-hidden="true"></span>
+          </button>
+          <div
+            id="budget-help-tooltip"
+            role="tooltip"
+            class="budget-help-tooltip rounded-lg border border-violet-200 bg-white/98 px-3 py-2 text-sm leading-relaxed text-violet-600 shadow-lg"
+          >
+            {{ t('budget.subtitle') }}
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-violet-100 pb-2 text-sm">
+        @if (selectedBaselineAccess() === 'Viewer') {
+          <span class="rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+            Read only
+          </span>
+        }
+        <button
+          type="button"
+          class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-xs font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-sm"
+          [disabled]="!canManageSelectedBaseline()"
+          (click)="openNewPositionSheet()"
+        >
+          <span class="fa-solid fa-circle-plus text-sm leading-none sm:text-base" aria-hidden="true"></span>
+          {{ t('budget.openNewPositionSheet') }}
+        </button>
+      </div>
+    </div>
+
+    @if (loading()) {
+      <p class="shrink-0 text-sm text-violet-600">{{ t('budget.loading') }}</p>
+    } @else {
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded border border-violet-100">
+        <div
+          class="app-budget-data-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain overscroll-y-contain touch-pan-x [-webkit-overflow-scrolling:touch]"
+          (scroll)="onScrollRefreshCategorySuggest($event)"
+        >
+          <div
+            class="min-h-0 min-w-0 min-w-[780px] flex-1 overflow-y-auto"
+            (scroll)="onScrollRefreshCategorySuggest($event)"
+          >
+            <table class="budget-table min-w-[780px] border-collapse text-sm">
+              <colgroup>
+                <col class="budget-col-position" />
+                @for (month of months; track month) {
+                  <col class="budget-col-month" />
+                }
+                <col class="budget-col-total" />
+                <col class="budget-col-action" />
+              </colgroup>
+              <thead class="bg-violet-50">
+                <tr>
+                  <th class="min-w-0 border-b border-r border-violet-100 bg-violet-50 px-1 py-2 text-left text-xs font-medium text-violet-800 sm:px-2 sm:text-sm">
+                    {{ t('budget.position') }}
+                  </th>
+                  @for (month of months; track month) {
+                    <th class="min-w-0 border-b border-r border-violet-100 bg-violet-50 px-0.5 py-2 text-right text-xs font-medium text-violet-800 sm:px-1 sm:text-sm">
+                      {{ monthLabel(month) }}
+                    </th>
+                  }
+                  <th class="min-w-0 border-b border-r border-violet-100 bg-violet-50 px-1 py-2 text-right text-xs font-medium text-violet-800 sm:px-2 sm:text-sm">
+                    {{ t('budget.total') }}
+                  </th>
+                  <th class="min-w-0 border-b border-violet-100 bg-violet-50 px-1 py-2 text-left text-xs font-medium text-violet-800 sm:px-2 sm:text-sm">
+                    {{ t('budget.action') }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (group of positionsByCategory(); track group.categoryId) {
+                  <tr class="budget-category-section">
+                    <td
+                      class="border-b border-violet-200 bg-violet-100/95 px-2 py-1.5 text-left text-xs font-semibold text-violet-900 sm:text-sm"
+                      [attr.colspan]="tableDataColumnCount()"
+                    >
+                      {{ group.label }}
+                    </td>
+                  </tr>
+                  @for (position of group.positions; track position.id) {
+                  <tr
+                    class="cursor-pointer hover:bg-violet-50/60"
+                    [class.budget-row-selected]="editPositionSheetOpen && editPositionDraft?.id === position.id"
+                    (click)="onBudgetRowClick(position, $event)"
+                  >
+                    <td class="min-w-0 border-b border-r border-violet-100 bg-white px-1 py-1.5 text-xs font-medium text-violet-900 sm:px-2 sm:py-2 sm:text-sm">
+                      <input
+                        #posName
+                        class="w-full min-w-0 rounded border border-transparent px-0.5 py-0.5 text-xs focus:border-violet-300 focus:outline-none sm:px-1 sm:py-1 sm:text-sm"
+                        [value]="position.name"
+                        [title]="position.name"
+                        [readonly]="!canManageSelectedBaseline()"
+                        (blur)="onPositionNameBlur(position, posName.value)"
+                      />
+                    </td>
+                    @for (month of months; track month) {
+                      <td
+                        class="min-w-0 border-b border-r border-violet-100 px-0.5 py-0.5 transition-colors sm:px-1 sm:py-1"
+                        [ngClass]="signedAmountCellClass(getCellAmount(position, month))"
+                      >
+                        <input
+                          class="w-full min-w-0 rounded border border-transparent bg-transparent px-0.5 py-0.5 text-right text-xs tabular-nums focus:border-violet-300 focus:outline-none sm:px-1 sm:text-sm"
+                          type="text"
+                          inputmode="decimal"
+                          autocomplete="off"
+                          [readonly]="!canManageSelectedBaseline()"
+                          [value]="cellAmountInputValue(position, month)"
+                          (focus)="onCellAmountFocus(position, month)"
+                          (input)="onAmountDraftInput($any($event.target).value)"
+                          (blur)="onAmountFieldBlur()"
+                          (keydown.enter)="$any($event.target).blur()"
+                        />
+                      </td>
+                    }
+                    <td
+                      class="min-w-0 border-b border-r border-violet-100 px-1 py-1.5 text-right text-xs font-semibold tabular-nums sm:px-2 sm:py-2 sm:text-sm"
+                      [ngClass]="signedAmountTextClass(getRowTotal(position))"
+                    >
+                      {{ getRowTotal(position) | number:'1.2-2':i18n.numberLocale() }}
+                    </td>
+                    <td class="min-w-0 border-b border-violet-100 px-0.5 py-1.5 text-left sm:px-2 sm:py-2">
+                      <div class="flex flex-col items-stretch gap-1 sm:flex-row sm:items-center sm:justify-start sm:gap-1">
+                        <button
+                          type="button"
+                          class="inline-flex items-center justify-center gap-1 rounded bg-violet-500 px-1 py-0.5 text-[10px] font-medium text-white hover:bg-violet-600 sm:px-2 sm:py-1 sm:text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                          [title]="t('budget.editRowHint')"
+                          [disabled]="!canManageSelectedBaseline()"
+                          (click)="$event.stopPropagation(); openEditPositionSheet(position)"
+                        >
+                          <span class="fa-solid fa-pen-to-square leading-none" aria-hidden="true"></span>
+                          {{ t('budget.barEdit') }}
+                        </button>
+                        <button
+                          type="button"
+                          class="inline-flex items-center justify-center gap-1 rounded bg-rose-100 px-1 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-200 sm:px-2 sm:py-1 sm:text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                          [disabled]="!canManageSelectedBaseline() || isPositionDeleteInFlight(position.id)"
+                          (click)="$event.stopPropagation(); deletePosition(position)"
+                        >
+                          <span class="fa-solid fa-trash-can leading-none" aria-hidden="true"></span>
+                          {{ t('budget.delete') }}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+          <div class="app-budget-summary min-w-0 shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x border-t-2 border-violet-200 bg-violet-100 shadow-[0_-6px_16px_-8px_rgba(91,33,182,0.18)]">
+            <table class="budget-table budget-table-summary min-w-[780px] border-collapse text-xs font-medium sm:text-sm">
+              <colgroup>
+                <col class="budget-col-position" />
+                @for (month of months; track month) {
+                  <col class="budget-col-month" />
+                }
+                <col class="budget-col-total" />
+                <col class="budget-col-action" />
+              </colgroup>
+              <tbody>
+                <tr>
+                  <td class="min-w-0 border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-violet-900 sm:px-2 sm:py-2" colspan="1">
+                    {{ t('budget.monthlySum') }}
+                  </td>
+                  @for (month of months; track month) {
+                    <td
+                      class="min-w-0 border-r border-violet-200 bg-violet-100 px-0.5 py-1.5 text-right tabular-nums sm:px-1 sm:py-2"
+                      [ngClass]="signedAmountTextClass(getColumnTotal(month))"
+                    >
+                      {{ getColumnTotal(month) | number:'1.2-2':i18n.numberLocale() }}
+                    </td>
+                  }
+                  <td class="min-w-0 border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-right tabular-nums sm:px-2 sm:py-2" [ngClass]="signedAmountTextClass(getYearNetTotal())">
+                    {{ getYearNetTotal() | number:'1.2-2':i18n.numberLocale() }}
+                  </td>
+                  <td class="min-w-0 bg-violet-100"></td>
+                </tr>
+                <tr>
+                  <td class="min-w-0 border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-violet-900 sm:px-2 sm:py-2" colspan="1">
+                    {{ t('budget.runningCashflow') }}
+                  </td>
+                  @for (month of months; track month) {
+                    <td
+                      class="min-w-0 border-r border-violet-200 bg-violet-100 px-0.5 py-1.5 text-right tabular-nums sm:px-1 sm:py-2"
+                      [ngClass]="signedAmountTextClass(getRunningCashflowThrough(month))"
+                    >
+                      {{ getRunningCashflowThrough(month) | number:'1.2-2':i18n.numberLocale() }}
+                    </td>
+                  }
+                  <td
+                    class="min-w-0 border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-right tabular-nums sm:px-2 sm:py-2"
+                    [ngClass]="signedAmountTextClass(getRunningCashflowThrough(12))"
+                  >
+                    {{ getRunningCashflowThrough(12) | number:'1.2-2':i18n.numberLocale() }}
+                  </td>
+                  <td class="min-w-0 bg-violet-100"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (savingCells) {
+      <p class="shrink-0 text-xs text-violet-600">{{ t('budget.savingCells') }}</p>
+    }
+  </article>
+
+  @if (editPositionSheetOpen && editPositionDraft) {
+    <div
+      class="fixed inset-0 z-[55] flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
+      (click)="closeEditPositionSheet()"
+      role="presentation"
+    >
+      <div
+        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-md max-h-[min(90dvh,40rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-4 shadow-xl sm:mb-0 sm:max-h-[min(90dvh,40rem)] sm:p-5"
+        (click)="$event.stopPropagation()"
+        role="dialog"
+        aria-modal="true"
+        [attr.aria-label]="t('budget.editPositionSheetTitle')"
+      >
+        <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.editPositionSheetTitle') }}</h2>
+        <p class="mt-1 text-sm text-violet-600">{{ editPositionTitleName() }}</p>
+        <div class="mt-4 flex flex-col gap-3">
+          <div class="relative min-w-0">
+            <input
+              #catEditSheetInput
+              [(ngModel)]="editPositionDraft.categoryName"
+              class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              [placeholder]="t('budget.categoryPlaceholder')"
+              [attr.aria-expanded]="categorySuggestOpen?.kind === 'edit'"
+              aria-autocomplete="list"
+              aria-controls="budget-category-suggest"
+              (focus)="openCategorySuggest(catEditSheetInput, 'edit')"
+              (input)="refreshSuggestRect(catEditSheetInput)"
+              (blur)="scheduleCloseCategorySuggest()"
+            />
+          </div>
+          <select
+            [(ngModel)]="editPositionDraft.cadence"
+            class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+            [attr.aria-label]="t('budget.recurrence')"
+            (ngModelChange)="onEditPositionCadenceChange($event)"
+          >
+            @for (cadence of cadences; track cadence) {
+              <option [value]="cadence">{{ cadenceLabel(cadence) }}</option>
+            }
+          </select>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-default-amt">{{
+              t('budget.defaultAmountLabel')
+            }}</label>
+            <input
+              id="edit-pos-default-amt"
+              class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-right text-sm tabular-nums text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              [value]="editPositionDefaultInputValue()"
+              (focus)="onEditPositionDefaultFocus()"
+              (input)="onAmountDraftInput($any($event.target).value)"
+              (blur)="onAmountFieldBlur()"
+              (keydown.enter)="$any($event.target).blur()"
+            />
+          </div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-start">{{ t('budget.validFrom') }}</label>
+              <input
+                id="edit-pos-start"
+                [(ngModel)]="editPositionDraft.startDate"
+                class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                type="date"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-end">{{ t('budget.validTo') }}</label>
+              <input
+                id="edit-pos-end"
+                [(ngModel)]="editPositionDraft.endDate"
+                class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                type="date"
+              />
+            </div>
+          </div>
+          @if (editPositionDraft.cadence !== 'None') {
+            <fieldset class="rounded border border-violet-100 bg-violet-50/50 p-3">
+              <legend class="px-1 text-xs font-medium text-violet-800">{{ t('budget.plannedApplyLegend') }}</legend>
+              <p class="mb-2 text-xs text-violet-600">{{ t('budget.plannedApplyHint') }}</p>
+              <div class="flex flex-col gap-2">
+                <label class="flex cursor-pointer items-start gap-2 text-sm text-violet-900">
+                  <input
+                    type="radio"
+                    name="edit-planned-apply"
+                    class="mt-0.5"
+                    [value]="'all'"
+                    [(ngModel)]="editPositionPlannedApplyScope"
+                  />
+                  <span>{{ t('budget.plannedApplyAll') }}</span>
+                </label>
+                <label class="flex cursor-pointer items-start gap-2 text-sm text-violet-900">
+                  <input
+                    type="radio"
+                    name="edit-planned-apply"
+                    class="mt-0.5"
+                    [value]="'dateRange'"
+                    [(ngModel)]="editPositionPlannedApplyScope"
+                  />
+                  <span>{{ t('budget.plannedApplyRange') }}</span>
+                </label>
+              </div>
+              @if (editPositionPlannedApplyScope === 'dateRange') {
+                <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-planned-from">{{
+                      t('budget.plannedApplyFrom')
+                    }}</label>
+                    <input
+                      id="edit-planned-from"
+                      [(ngModel)]="editPositionPlannedApplyFrom"
+                      class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                      type="date"
+                    />
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-planned-to">{{
+                      t('budget.plannedApplyTo')
+                    }}</label>
+                    <input
+                      id="edit-planned-to"
+                      [(ngModel)]="editPositionPlannedApplyTo"
+                      class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                      type="date"
+                    />
+                  </div>
+                </div>
+              }
+            </fieldset>
+          }
+          @if (editSheetShowsTemplateReapply()) {
+            <div class="rounded border border-violet-100 bg-violet-50/60 p-3">
+              <p class="mb-2 text-xs text-violet-600">{{ t('budget.reapplyTemplateHint') }}</p>
+              <button
+                type="button"
+                class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:w-auto sm:py-1.5"
+                [disabled]="!canManageSelectedBaseline()"
+                (click)="reapplyRecurrenceTemplateForEditingPosition()"
+              >
+                <span class="fa-solid fa-arrows-rotate leading-none" aria-hidden="true"></span>
+                {{ t('budget.applyTemplateToYear') }}
+              </button>
+            </div>
+          }
+        </div>
+        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
+            (click)="closeEditPositionSheet()"
+          >
+            <span class="fa-solid fa-xmark leading-none" aria-hidden="true"></span>
+            {{ t('app.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
+            [disabled]="!canManageSelectedBaseline()"
+            (click)="saveEditPosition()"
+          >
+            <span class="fa-solid fa-check leading-none" aria-hidden="true"></span>
+            {{ t('budget.saveChanges') }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (newPositionSheetOpen) {
+    <div
+      class="fixed inset-0 z-[55] flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
+      (click)="closeNewPositionSheet()"
+      role="presentation"
+    >
+      <div
+        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-md max-h-[min(90dvh,40rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-4 shadow-xl sm:mb-0 sm:max-h-[min(90dvh,40rem)] sm:p-5"
+        (click)="$event.stopPropagation()"
+        role="dialog"
+        aria-modal="true"
+        [attr.aria-label]="t('budget.newPositionSheetTitle')"
+      >
+        <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.newPositionSheetTitle') }}</h2>
+        <div class="mt-4 flex flex-col gap-3">
+          <input
+            [(ngModel)]="newPosition.name"
+            class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+            [placeholder]="t('budget.newPositionPlaceholder')"
+            (keydown.escape)="closeNewPositionSheet()"
+          />
+          <div class="relative min-w-0">
+            <input
+              #catNewSheetInput
+              [(ngModel)]="newPosition.categoryName"
+              class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              [placeholder]="t('budget.categoryPlaceholder')"
+              [attr.aria-expanded]="categorySuggestOpen?.kind === 'new'"
+              aria-autocomplete="list"
+              aria-controls="budget-category-suggest"
+              (focus)="openCategorySuggest(catNewSheetInput, 'new')"
+              (input)="refreshSuggestRect(catNewSheetInput)"
+              (blur)="scheduleCloseCategorySuggest()"
+            />
+          </div>
+          <select
+            [(ngModel)]="newPosition.cadence"
+            class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+            [attr.aria-label]="t('budget.recurrence')"
+          >
+            @for (cadence of cadences; track cadence) {
+              <option [value]="cadence">{{ cadenceLabel(cadence) }}</option>
+            }
+          </select>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-default-amt">{{
+              t('budget.defaultAmountLabel')
+            }}</label>
+            <input
+              id="new-pos-default-amt"
+              class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-right text-sm tabular-nums text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              [value]="newPositionDefaultInputValue()"
+              (focus)="onNewPositionDefaultFocus()"
+              (input)="onAmountDraftInput($any($event.target).value)"
+              (blur)="onAmountFieldBlur()"
+              (keydown.enter)="$any($event.target).blur()"
+            />
+          </div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-start">{{ t('budget.validFrom') }}</label>
+              <input
+                id="new-pos-start"
+                [(ngModel)]="newPosition.startDate"
+                class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                type="date"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-end">{{ t('budget.validTo') }}</label>
+              <input
+                id="new-pos-end"
+                [(ngModel)]="newPosition.endDate"
+                class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                type="date"
+              />
+            </div>
+          </div>
+        </div>
+        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
+            (click)="closeNewPositionSheet()"
+          >
+            <span class="fa-solid fa-xmark leading-none" aria-hidden="true"></span>
+            {{ t('app.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
+            [disabled]="!canManageSelectedBaseline()"
+            (click)="createPosition()"
+          >
+            <span class="fa-solid fa-plus leading-none" aria-hidden="true"></span>
+            {{ t('budget.add') }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</section>

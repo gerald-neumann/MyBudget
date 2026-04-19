@@ -1,0 +1,103 @@
+# Same stack as docker-compose.yml, but build context is ./bundle (no git clone).
+# Next to this file on the NAS, create:
+#   bundle/backend/MyBudget.Api/     — full API project (include Dockerfile; omit bin/obj)
+#   bundle/frontend/my-budget-ui/    — full Angular app (omit node_modules; Dockerfile runs npm ci)
+#
+# Copy this file as docker-compose.yml on the NAS, or run:
+#   docker compose -f docker-compose.bundled.yml up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: MyBudget-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - mybudget_app_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: MyBudget-keycloak-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloak_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.1
+    container_name: MyBudget-keycloak
+    restart: unless-stopped
+    command: start
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_HTTP_PORT:-8080}:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./bundle
+      dockerfile: backend/MyBudget.Api/Dockerfile
+    image: mybudget-api:local
+    container_name: MyBudget-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DISABLE_HTTPS_REDIRECT: "true"
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Auth__Enabled: "${AUTH_ENABLED}"
+      Auth__Authority: "${AUTH_AUTHORITY}"
+      Auth__Audience: "${AUTH_AUDIENCE}"
+      Auth__RequireHttpsMetadata: "${AUTH_REQUIRE_HTTPS_METADATA}"
+      FrontendOrigin: "${FRONTEND_ORIGIN}"
+    ports:
+      - "${API_HOST_PORT:-5256}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    build:
+      context: ./bundle
+      dockerfile: frontend/my-budget-ui/Dockerfile
+    image: mybudget-ui:local
+    container_name: MyBudget-ui
+    restart: unless-stopped
+    ports:
+      - "${UI_HOST_PORT:-9080}:80"
+    volumes:
+      - ./ui-config.json:/usr/share/nginx/html/config.json:ro
+    depends_on:
+      - api
+
+volumes:
+  mybudget_app_pgdata:
+  keycloak_pgdata:
