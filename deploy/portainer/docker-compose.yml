@@ -1,0 +1,89 @@
+# MyBudget production stack for Portainer (PostgreSQL + API + UI).
+# The UI image nginx serves the SPA and proxies /api/ to the API container (see frontend/my-budget-ui/nginx.conf).
+# Keycloak is expected at a separate URL (e.g. https://auth.flowparity.com/keycloak) — not in this stack.
+#
+# API/UI images must already exist on the Docker host (docker load) or be pullable from a registry.
+# Local-only tags (mybudget-*:local): build on your PC, then docker save | scp | docker load on the server.
+#
+# Deploy: Portainer → Stacks → Add stack → Git repository or Web editor (paste this file).
+# Set environment variables from env.example; mount ui-config.json next to the stack (see PORTAINER-FLOWPARITY-DEPLOY.md).
+#
+# External Docker network **edge** (create once: `docker network create edge`): **ui** joins it as hostname **mybudget**
+# so outer reverse-proxy / Hetzner edge nginx can reach the app. **api** and **postgres** stay on the stack default network only.
+
+name: mybudget
+
+networks:
+  edge:
+    external: true
+    name: edge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mybudget-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Override with a bind mount in Portainer if you prefer host paths, e.g. /data/mybudget/pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    image: ${MYBUDGET_API_IMAGE:-mybudget-api:local}
+    pull_policy: never
+    container_name: mybudget-api
+    restart: unless-stopped
+    # Bash + /dev/tcp: aspnet runtime image has no curl/wget. Confirms Kestrel is listening (after migrations).
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      DISABLE_HTTPS_REDIRECT: "true"
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Auth__Enabled: "${AUTH_ENABLED}"
+      Auth__Authority: "${AUTH_AUTHORITY}"
+      Auth__Audience: "${AUTH_AUDIENCE}"
+      Auth__RequireHttpsMetadata: "${AUTH_REQUIRE_HTTPS_METADATA}"
+      FrontendOrigin: "${FRONTEND_ORIGIN}"
+      PublicPathBase: "${PUBLIC_PATH_BASE:-}"
+      ENABLE_SWAGGER: "${ENABLE_SWAGGER:-false}"
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    image: ${MYBUDGET_UI_IMAGE:-mybudget-ui:local}
+    pull_policy: never
+    container_name: mybudget-ui
+    restart: unless-stopped
+    # Full host:container publish spec (default 80:80). Example loopback-only: 127.0.0.1:18080:80
+    ports:
+      - "${MYBUDGET_EDGE_PUBLISH:-80:80}"
+    volumes:
+      - ${MYBUDGET_UI_CONFIG_PATH:-./ui-config.json}:/usr/share/nginx/html/config.json:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      default:
+      edge:
+        aliases:
+          - mybudget
+
+volumes:
+  postgres_data:

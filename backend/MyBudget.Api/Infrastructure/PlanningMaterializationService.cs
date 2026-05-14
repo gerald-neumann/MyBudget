@@ -13,6 +13,9 @@ public class PlanningMaterializationService(BudgetDbContext dbContext) : IPlanni
 {
     public async Task MaterializeYearAsync(Guid baselineId, int year, CancellationToken cancellationToken = default)
     {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await BaselineYearPlanningLock.AcquireAsync(dbContext.Database, baselineId, year, cancellationToken);
+
         var positions = await dbContext.Positions
             .Include(x => x.PlannedAmounts)
             .Where(x => x.BaselineId == baselineId)
@@ -46,5 +49,6 @@ public class PlanningMaterializationService(BudgetDbContext dbContext) : IPlanni
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 }

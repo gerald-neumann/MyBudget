@@ -1,0 +1,11 @@
+# Legacy shim: `docker-compose.yml` already attaches **ui** to external **edge** with alias **mybudget**.
+# You may remove this file from Portainer stack definitions that still list two compose files.
+#
+# Prerequisite (unchanged): `docker network create edge` on the host before the first deploy.
+
+name: mybudget
+
+networks:
+  edge:
+    external: true
+    name: edge

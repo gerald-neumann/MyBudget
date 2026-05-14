@@ -70,3 +70,7 @@ tr.budget-row-selected {
   box-shadow: inset 0 0 0 1px rgb(167 139 250);
   background-color: rgb(245 243 255 / 0.95);
 }
+
+tr.budget-row-meta-panel td {
+  box-shadow: inset 0 1px 0 rgb(167 139 250 / 0.35);
+}

@@ -22,12 +22,60 @@ namespace MyBudget.Api.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("MyBudget.Api.Domain.Entities.Account", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal>("InitialBalance")
+                        .HasColumnType("numeric")
+                        .HasColumnName("initial_balance");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("TypeLabel")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("type_label");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_accounts");
+
+                    b.HasIndex("UserId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_accounts_user_id_name");
+
+                    b.ToTable("accounts", (string)null);
+                });
+
             modelBuilder.Entity("MyBudget.Api.Domain.Entities.ActualEntry", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid?>("AccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("account_id");
 
                     b.Property<decimal>("Amount")
                         .HasColumnType("numeric")
@@ -53,6 +101,9 @@ namespace MyBudget.Api.Infrastructure.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_actual_entries");
+
+                    b.HasIndex("AccountId")
+                        .HasDatabaseName("ix_actual_entries_account_id");
 
                     b.HasIndex("BudgetPositionId")
                         .HasDatabaseName("ix_actual_entries_budget_position_id");
@@ -81,49 +132,6 @@ namespace MyBudget.Api.Infrastructure.Migrations
                         .HasName("pk_users");
 
                     b.ToTable("users", (string)null);
-                });
-
-            modelBuilder.Entity("MyBudget.Api.Domain.Entities.BudgetBaseline", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid?>("ForkedFromBaselineId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("forked_from_baseline_id");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("name");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("status");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_baselines");
-
-                    b.HasIndex("ForkedFromBaselineId")
-                        .HasDatabaseName("ix_baselines_forked_from_baseline_id");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_baselines_user_id");
-
-                    b.ToTable("baselines", (string)null);
                 });
 
             modelBuilder.Entity("MyBudget.Api.Domain.Entities.BaselineInvitation", b =>
@@ -157,13 +165,13 @@ namespace MyBudget.Api.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
-                    b.Property<int>("Role")
-                        .HasColumnType("integer")
-                        .HasColumnName("role");
-
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer")
+                        .HasColumnName("role");
 
                     b.Property<string>("TokenHash")
                         .IsRequired()
@@ -216,17 +224,71 @@ namespace MyBudget.Api.Infrastructure.Migrations
                     b.HasKey("Id")
                         .HasName("pk_baseline_members");
 
-                    b.HasIndex("BaselineId")
-                        .HasDatabaseName("ix_baseline_members_baseline_id");
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_baseline_members_user_id");
 
                     b.HasIndex("BaselineId", "UserId")
                         .IsUnique()
                         .HasDatabaseName("ix_baseline_members_baseline_id_user_id");
 
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_baseline_members_user_id");
-
                     b.ToTable("baseline_members", (string)null);
+                });
+
+            modelBuilder.Entity("MyBudget.Api.Domain.Entities.BudgetBaseline", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("ForkedFromBaselineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("forked_from_baseline_id");
+
+                    b.Property<bool>("IsPrimaryBudget")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_primary_budget");
+
+                    b.Property<bool>("IsSampleDemo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_sample_demo");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_baselines");
+
+                    b.HasIndex("ForkedFromBaselineId")
+                        .HasDatabaseName("ix_baselines_forked_from_baseline_id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_baselines_user_id_primary_budget")
+                        .HasFilter("is_primary_budget IS TRUE");
+
+                    b.ToTable("baselines", (string)null);
                 });
 
             modelBuilder.Entity("MyBudget.Api.Domain.Entities.BudgetPosition", b =>
@@ -376,8 +438,26 @@ namespace MyBudget.Api.Infrastructure.Migrations
                     b.ToTable("planned_amounts", (string)null);
                 });
 
+            modelBuilder.Entity("MyBudget.Api.Domain.Entities.Account", b =>
+                {
+                    b.HasOne("MyBudget.Api.Domain.Entities.AppUser", "User")
+                        .WithMany("Accounts")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounts_users_user_id");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("MyBudget.Api.Domain.Entities.ActualEntry", b =>
                 {
+                    b.HasOne("MyBudget.Api.Domain.Entities.Account", "Account")
+                        .WithMany("ActualEntries")
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_actual_entries_accounts_account_id");
+
                     b.HasOne("MyBudget.Api.Domain.Entities.BudgetPosition", "BudgetPosition")
                         .WithMany("ActualEntries")
                         .HasForeignKey("BudgetPositionId")
@@ -385,26 +465,9 @@ namespace MyBudget.Api.Infrastructure.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_actual_entries_positions_budget_position_id");
 
+                    b.Navigation("Account");
+
                     b.Navigation("BudgetPosition");
-                });
-
-            modelBuilder.Entity("MyBudget.Api.Domain.Entities.BudgetBaseline", b =>
-                {
-                    b.HasOne("MyBudget.Api.Domain.Entities.BudgetBaseline", "ForkedFromBaseline")
-                        .WithMany("Forks")
-                        .HasForeignKey("ForkedFromBaselineId")
-                        .HasConstraintName("fk_baselines_baselines_forked_from_baseline_id");
-
-                    b.HasOne("MyBudget.Api.Domain.Entities.AppUser", "User")
-                        .WithMany("Baselines")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_baselines_users_user_id");
-
-                    b.Navigation("ForkedFromBaseline");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MyBudget.Api.Domain.Entities.BaselineInvitation", b =>
@@ -453,6 +516,25 @@ namespace MyBudget.Api.Infrastructure.Migrations
                         .HasConstraintName("fk_baseline_members_users_user_id");
 
                     b.Navigation("Baseline");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("MyBudget.Api.Domain.Entities.BudgetBaseline", b =>
+                {
+                    b.HasOne("MyBudget.Api.Domain.Entities.BudgetBaseline", "ForkedFromBaseline")
+                        .WithMany("Forks")
+                        .HasForeignKey("ForkedFromBaselineId")
+                        .HasConstraintName("fk_baselines_baselines_forked_from_baseline_id");
+
+                    b.HasOne("MyBudget.Api.Domain.Entities.AppUser", "User")
+                        .WithMany("Baselines")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_baselines_users_user_id");
+
+                    b.Navigation("ForkedFromBaseline");
 
                     b.Navigation("User");
                 });
@@ -509,13 +591,20 @@ namespace MyBudget.Api.Infrastructure.Migrations
                     b.Navigation("BudgetPosition");
                 });
 
+            modelBuilder.Entity("MyBudget.Api.Domain.Entities.Account", b =>
+                {
+                    b.Navigation("ActualEntries");
+                });
+
             modelBuilder.Entity("MyBudget.Api.Domain.Entities.AppUser", b =>
                 {
                     b.Navigation("AcceptedInvitations");
 
-                    b.Navigation("Baselines");
+                    b.Navigation("Accounts");
 
                     b.Navigation("BaselineMemberships");
+
+                    b.Navigation("Baselines");
 
                     b.Navigation("Categories");
 

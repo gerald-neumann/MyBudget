@@ -1,25 +1,34 @@
 import { CommonModule } from '@angular/common';
 import { Component, DestroyRef, HostListener, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin } from 'rxjs';
+import { FormsModule } from '@angular/forms';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter, forkJoin } from 'rxjs';
 import { BaselineInvitation, BaselineMember } from './core/budget.models';
-import { BudgetApiService } from './core/budget-api.service';
+import { ApiBuildInfoDto, BudgetApiService } from './core/budget-api.service';
 import { BudgetStateService } from './core/budget-state.service';
 import { I18nService } from './core/i18n.service';
+import { KeycloakAuthService } from './core/keycloak-auth.service';
+import { APP_BUILD_TIMESTAMP_UTC, APP_VERSION } from './app-version';
 
 @Component({
   selector: 'app-root',
   imports: [CommonModule, FormsModule, RouterOutlet, RouterLink, RouterLinkActive],
-  templateUrl: './app.html',
-  styleUrl: './app.css'
+  templateUrl: './app.html'
 })
 export class App {
   private readonly api = inject(BudgetApiService);
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  readonly keycloakAuth = inject(KeycloakAuthService);
+  readonly appVersion = APP_VERSION;
+  readonly appBuildTimestampUtc = APP_BUILD_TIMESTAMP_UTC;
+  readonly apiBuildInfo = signal<ApiBuildInfoDto | null>(null);
+
+  /** Avoid /me + /baselines while Keycloak is on but there is no session (e.g. /sign-in-failed). */
+  private shellPrimed = false;
 
   readonly userMenuOpen = signal(false);
   readonly userMenuPanelId = 'app-user-menu-panel';
@@ -36,7 +45,43 @@ export class App {
   invitations: BaselineInvitation[] = [];
   members: BaselineMember[] = [];
 
+  readonly sentInvitationsModalOpen = signal(false);
+  sentInvitations: BaselineInvitation[] = [];
+  sentInvitationsError = '';
+
+  renameBaselineModalOpen = false;
+  renameBaselineName = '';
+  renameBaselineError = '';
+
+  /** Toggled off/on so the primary router outlet remounts after a household change (full page reload for the current route). */
+  readonly routeOutletMounted = signal(true);
+
   constructor() {
+    this.api
+      .getApiBuildInfo()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((info) => this.apiBuildInfo.set(info));
+    this.primeShellDataWhenAllowed();
+    this.router.events
+      .pipe(
+        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(() => this.primeShellDataWhenAllowed());
+  }
+
+  private primeShellDataWhenAllowed(): void {
+    if (this.shellPrimed) {
+      return;
+    }
+    if (this.keycloakAuth.usesKeycloakAuth() && !this.keycloakAuth.isAuthenticated()) {
+      return;
+    }
+    this.shellPrimed = true;
+    this.loadShellUserAndBaselines();
+  }
+
+  private loadShellUserAndBaselines(): void {
     this.reloadBaselines();
     this.api
       .getMe()
@@ -80,6 +125,84 @@ export class App {
   openSharingModalFromMenu(): void {
     this.closeUserMenu();
     this.openSharingModal();
+  }
+
+  openSentInvitationsFromMenu(): void {
+    this.closeUserMenu();
+    this.sentInvitationsError = '';
+    this.sentInvitationsModalOpen.set(true);
+    this.loadSentInvitations();
+  }
+
+  openHelpFromMenu(): void {
+    this.closeUserMenu();
+    void this.router.navigate(['/help']);
+  }
+
+  logoutFromMenu(): void {
+    this.closeUserMenu();
+    void this.keycloakAuth.logout();
+  }
+
+  closeSentInvitationsModal(): void {
+    this.sentInvitationsModalOpen.set(false);
+    this.sentInvitationsError = '';
+  }
+
+  openRenameBaselineFromMenu(): void {
+    this.closeUserMenu();
+    const selected = this.state.selectedBaseline();
+    if (!selected || selected.myAccess !== 'Owner') {
+      return;
+    }
+    this.renameBaselineError = '';
+    this.renameBaselineName = selected.name;
+    this.renameBaselineModalOpen = true;
+  }
+
+  closeRenameBaselineModal(): void {
+    this.renameBaselineModalOpen = false;
+    this.renameBaselineName = '';
+    this.renameBaselineError = '';
+  }
+
+  saveRenamedBaseline(): void {
+    const selected = this.state.selectedBaseline();
+    const name = this.renameBaselineName.trim();
+    if (!selected || selected.myAccess !== 'Owner' || !name) {
+      return;
+    }
+
+    this.api
+      .updateBaseline(selected.id, { name, status: selected.status })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.closeRenameBaselineModal();
+          this.reloadBaselines(selected.id);
+        },
+        error: () => {
+          this.renameBaselineError = this.i18n.t('app.renameBaselineFailed');
+        }
+      });
+  }
+
+  setSelectedBaselineAsDefault(): void {
+    this.closeUserMenu();
+    const selected = this.state.selectedBaseline();
+    if (!selected || selected.myAccess !== 'Owner' || selected.isPrimaryBudget || selected.isSampleDemo) {
+      return;
+    }
+
+    this.api
+      .updateBaseline(selected.id, { isPrimaryBudget: true })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.reloadBaselines(selected.id),
+        error: () => {
+          /* surface minimally: list will stay consistent on next load */
+        }
+      });
   }
 
   openSharingModal(): void {
@@ -192,6 +315,65 @@ export class App {
       });
   }
 
+  revokeSentInvitation(invitation: BaselineInvitation): void {
+    if (invitation.revokedAt || invitation.consumedAt) {
+      return;
+    }
+
+    this.api
+      .revokeBaselineInvitation(invitation.baselineId, invitation.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.loadSentInvitations(),
+        error: () => {
+          this.sentInvitationsError = this.i18n.t('app.sharingLoadFailed');
+        }
+      });
+  }
+
+  private loadSentInvitations(): void {
+    this.api
+      .getSentBaselineInvitations()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rows) => {
+          this.sentInvitations = rows;
+        },
+        error: () => {
+          this.sentInvitations = [];
+          this.sentInvitationsError = this.i18n.t('app.sharingLoadFailed');
+        }
+      });
+  }
+
+  /** For invitations you sent: pending link, accepted (shows name), expired without accept, or revoked. */
+  inviteEffectiveStatus(inv: BaselineInvitation): 'revoked' | 'accepted' | 'expired' | 'pending' {
+    if (inv.revokedAt) {
+      return 'revoked';
+    }
+    if (inv.consumedAt) {
+      return 'accepted';
+    }
+    if (new Date(inv.expiresAt).getTime() < Date.now()) {
+      return 'expired';
+    }
+    return 'pending';
+  }
+
+  inviteStatusLabelKey(inv: BaselineInvitation): string {
+    const s = this.inviteEffectiveStatus(inv);
+    if (s === 'revoked') {
+      return 'app.inviteStatusRevoked';
+    }
+    if (s === 'accepted') {
+      return 'app.inviteStatusAccepted';
+    }
+    if (s === 'expired') {
+      return 'app.inviteStatusExpired';
+    }
+    return 'app.inviteStatusPending';
+  }
+
   private loadSharingDetails(baselineId: string): void {
     forkJoin({
       invitations: this.api.getBaselineInvitations(baselineId),
@@ -243,7 +425,7 @@ export class App {
     }
 
     this.api
-      .forkBaseline(selected.id, { name: `${selected.name} (${this.i18n.t('app.forkSelected')})` })
+      .forkBaseline(selected.id, { name: `${this.i18n.translateBaselineDisplayName(selected.name)} (${this.i18n.t('app.forkSelected')})` })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.reloadBaselines());
   }
@@ -270,6 +452,19 @@ export class App {
     return this.i18n.t(key);
   }
 
+  onToolbarBaselineSelect(baselineId: string): void {
+    if (!baselineId || baselineId === this.state.selectedBaselineId()) {
+      return;
+    }
+    this.state.selectBaseline(baselineId);
+    this.remountRouteOutlet();
+  }
+
+  private remountRouteOutlet(): void {
+    this.routeOutletMounted.set(false);
+    queueMicrotask(() => this.routeOutletMounted.set(true));
+  }
+
   private reloadBaselines(selectBaselineId?: string): void {
     this.api
       .getBaselines()
@@ -278,7 +473,7 @@ export class App {
         next: (baselines) => {
           this.state.setBaselines(baselines);
           if (selectBaselineId && baselines.some((b) => b.id === selectBaselineId)) {
-            this.state.selectedBaselineId.set(selectBaselineId);
+            this.state.selectBaseline(selectBaselineId);
           }
         },
         error: () => this.state.setBaselines([])

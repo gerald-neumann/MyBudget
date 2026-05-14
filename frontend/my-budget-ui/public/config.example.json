@@ -1,0 +1,9 @@
+{
+  "apiBaseUrl": "http://mybudget-api.local:5256",
+  "keycloak": {
+    "enabled": true,
+    "url": "https://auth.example.com",
+    "realm": "my-budget",
+    "clientId": "my-budget-ui"
+  }
+}

@@ -19,6 +19,10 @@ export interface BudgetBaseline {
   forkedFromBaselineId?: string | null;
   ownerUserId: string;
   myAccess: BaselineAccessKind;
+  /** Owner's default workspace when you own the baseline; false for budgets shared with you. */
+  isPrimaryBudget?: boolean;
+  /** Seeded demo workspace; UI translates names/notes that use `sample.*` keys. */
+  isSampleDemo?: boolean;
 }
 
 export interface PlannedAmount {
@@ -36,6 +40,15 @@ export interface BudgetRecurrenceRule {
   startDate: string;
   endDate?: string | null;
   defaultAmount: number;
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  typeLabel?: string | null;
+  initialBalance: number;
+  currentBalance: number;
+  sortOrder: number;
 }
 
 export interface BudgetPosition {
@@ -56,10 +69,17 @@ export interface BudgetPosition {
 export interface ActualEntry {
   id: string;
   budgetPositionId: string;
+  accountId?: string | null;
+  accountName?: string | null;
   bookedOn: string;
   amount: number;
   note?: string | null;
   externalRef?: string | null;
+}
+
+export interface ActualEntriesPage {
+  items: ActualEntry[];
+  totalCount: number;
 }
 
 export interface MonthlySummaryPoint {
@@ -84,18 +104,22 @@ export interface CategorySummaryPoint {
 
 export interface BaselineMember {
   userId: string;
+  displayName?: string | null;
   role: BaselineMemberRole;
   createdAt: string;
 }
 
 export interface BaselineInvitation {
   id: string;
+  baselineId: string;
+  baselineName: string;
   role: BaselineMemberRole;
   expiresAt: string;
   createdAt: string;
   revokedAt?: string | null;
   consumedAt?: string | null;
   acceptedByUserId?: string | null;
+  acceptedByDisplayName?: string | null;
 }
 
 export interface BaselineComparisonPoint {

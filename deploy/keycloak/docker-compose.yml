@@ -1,17 +1,22 @@
-# Keycloak + PostgreSQL for Synology (Docker) / Portainer.
-# Set variables in .env (see env.example). Deploy as a stack; Portainer injects ${...} at deploy time.
+# Keycloak + PostgreSQL for Docker / Portainer.
+# Set variables in .env (see env.example, flowparity.env.example, or docker-compose.env). Postgres data: bind mount KEYCLOAK_PGDATA_HOST
+# (persists when the stack is recreated; back up that folder for restores).
+# Container names are generic (standalone IdP). MyBudget app stack: deploy/portainer/docker-compose.yml.
+
+name: mybudget-keycloak
 
 services:
   keycloak-db:
     image: postgres:16-alpine
-    container_name: MyBudget-keycloak-db
+    container_name: keycloak-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
     volumes:
-      - keycloak_pgdata:/var/lib/postgresql/data
+      # Persistent PostgreSQL files on the host (see KEYCLOAK_PGDATA_HOST in .env). Not a single "file" — a directory.
+      - "${KEYCLOAK_PGDATA_HOST:-./pgdata}:/var/lib/postgresql/data"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
       interval: 10s
@@ -20,7 +25,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.6.1
-    container_name: MyBudget-keycloak
+    container_name: keycloak
     restart: unless-stopped
     command: start
     environment:
@@ -35,13 +40,12 @@ services:
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME}
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+      # Default `/` = root path. Set `KC_HTTP_RELATIVE_PATH=/keycloak` in .env for https://auth…/keycloak/… (flowparity).
+      KC_HTTP_RELATIVE_PATH: ${KC_HTTP_RELATIVE_PATH:-/}
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
     ports:
-      - "${KEYCLOAK_HTTP_PORT:-8080}:8080"
+      - "${KEYCLOAK_HTTP_PORT:-8081}:8080"
     depends_on:
       keycloak-db:
         condition: service_healthy
-
-volumes:
-  keycloak_pgdata:

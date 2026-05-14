@@ -1,0 +1,29 @@
+---
+description: Prefer inline row editing for list/table data instead of modals
+alwaysApply: true
+---
+
+# Inline table editing (UI convention)
+
+For **Einnahmen**, **Ausgaben**, and **Budget**-style data tables, prefer **inline editing** (row expands in-place, or cells swap to inputs) instead of modal dialogs or bottom sheets for editing existing rows.
+
+## When to use inline patterns
+
+- Editing fields that belong to a single logical row (metadata, amounts, dates, selects).
+- Keeping scroll position and surrounding context visible.
+
+## When modals are still acceptable
+
+- **Creating** a new entity when the form is long and would clutter a narrow table (e.g. “new position” sheet on the budget page).
+- Flows that need a focused step (confirmations, multi-step wizards) unrelated to a single row.
+
+## Implementation sketch
+
+- Track an `editingId` (or draft object keyed by row id); toggle the row template between read and edit branches (`@if` / `*ngIf`), matching `spendings-page` / `accounts-page` patterns.
+- For wide grids, a **full-width detail row** under the data row (`colspan` across all columns) is fine if it keeps one concern per row and avoids a modal.
+
+## Examples in this repo
+
+- `spendings-page.component.html` — row switches to inputs; save/cancel in-row.
+- `accounts-page.component.html` — inline edit with save/cancel.
+- `budget-page.component.html` — planned amounts stay as cell inputs; position meta (category, cadence, dates, template scope) uses an **expandable table row** under the selected line instead of an overlay.

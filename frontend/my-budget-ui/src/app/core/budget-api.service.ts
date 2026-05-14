@@ -2,8 +2,10 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 
 import { BUDGET_API_BASE_URL } from './api-base-url';
-import { Observable } from 'rxjs';
+import { Observable, catchError, of, shareReplay } from 'rxjs';
 import {
+  Account,
+  ActualEntriesPage,
   ActualEntry,
   BaselineInvitation,
   BaselineComparisonPoint,
@@ -22,17 +24,56 @@ export interface CurrentUserDto {
   displayName: string;
 }
 
+export interface ApiBuildInfoDto {
+  version: string;
+  buildTimestampUtc: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BudgetApiService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(BUDGET_API_BASE_URL);
+  private apiBuildInfo$?: Observable<ApiBuildInfoDto>;
 
   getMe(): Observable<CurrentUserDto> {
     return this.http.get<CurrentUserDto>(`${this.baseUrl}/me`);
   }
 
+  /** Anonymous; safe before auth. Cached per browser session. */
+  getApiBuildInfo(): Observable<ApiBuildInfoDto> {
+    this.apiBuildInfo$ ??= this.http.get<ApiBuildInfoDto>(`${this.baseUrl}/build-info`).pipe(
+      catchError(() => of<ApiBuildInfoDto>({ version: '', buildTimestampUtc: null })),
+      shareReplay({ bufferSize: 1, refCount: false })
+    );
+    return this.apiBuildInfo$;
+  }
+
   getCategories(): Observable<Category[]> {
     return this.http.get<Category[]>(`${this.baseUrl}/categories`);
+  }
+
+  getAccounts(): Observable<Account[]> {
+    return this.http.get<Account[]>(`${this.baseUrl}/accounts`);
+  }
+
+  createAccount(payload: {
+    name: string;
+    typeLabel?: string | null;
+    initialBalance: number;
+    sortOrder: number;
+  }): Observable<Account> {
+    return this.http.post<Account>(`${this.baseUrl}/accounts`, payload);
+  }
+
+  updateAccount(
+    id: string,
+    payload: { name: string; typeLabel?: string | null; initialBalance: number; sortOrder: number }
+  ): Observable<Account> {
+    return this.http.patch<Account>(`${this.baseUrl}/accounts/${id}`, payload);
+  }
+
+  deleteAccount(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/accounts/${id}`);
   }
 
   getCategoriesForBaseline(baselineId: string): Observable<Category[]> {
@@ -49,6 +90,16 @@ export class BudgetApiService {
 
   createBaseline(payload: { name: string; status?: string }): Observable<BudgetBaseline> {
     return this.http.post<BudgetBaseline>(`${this.baseUrl}/baselines`, payload);
+  }
+
+  updateBaseline(
+    id: string,
+    payload: { name?: string; status?: string; isPrimaryBudget?: boolean }
+  ): Observable<BudgetBaseline> {
+    const body = Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined)
+    ) as Record<string, string | boolean>;
+    return this.http.patch<BudgetBaseline>(`${this.baseUrl}/baselines/${id}`, body);
   }
 
   forkBaseline(id: string, payload: { name: string }): Observable<BudgetBaseline> {
@@ -112,20 +163,67 @@ export class BudgetApiService {
     return this.http.patch(`${this.baseUrl}/planned-amounts`, { items });
   }
 
-  getActualEntries(baselineId: string): Observable<ActualEntry[]> {
-    return this.http.get<ActualEntry[]>(`${this.baseUrl}/actuals`, {
-      params: new HttpParams().set('baselineId', baselineId)
-    });
+  getActualEntriesPage(params: {
+    baselineId: string;
+    skip?: number;
+    take?: number;
+    bookedFrom?: string | null;
+    bookedTo?: string | null;
+    /** Each term is AND-combined (position, category, account, note). */
+    searchTerms?: string[] | null;
+    amountFilter?: string | null;
+    /** When set, only income or only expense lines (category-based). */
+    flowKind?: 'income' | 'expense';
+  }): Observable<ActualEntriesPage> {
+    let httpParams = new HttpParams()
+      .set('baselineId', params.baselineId)
+      .set('skip', String(params.skip ?? 0))
+      .set('take', String(params.take ?? 50));
+    if (params.bookedFrom) {
+      httpParams = httpParams.set('bookedFrom', params.bookedFrom);
+    }
+    if (params.bookedTo) {
+      httpParams = httpParams.set('bookedTo', params.bookedTo);
+    }
+    for (const term of params.searchTerms ?? []) {
+      const t = term.trim();
+      if (t) {
+        httpParams = httpParams.append('search', t);
+      }
+    }
+    const amountFilter = params.amountFilter?.trim();
+    if (amountFilter) {
+      httpParams = httpParams.set('amountFilter', amountFilter);
+    }
+    if (params.flowKind) {
+      httpParams = httpParams.set('flowKind', params.flowKind);
+    }
+    return this.http.get<ActualEntriesPage>(`${this.baseUrl}/actuals`, { params: httpParams });
   }
 
   createActualEntry(payload: {
     budgetPositionId: string;
+    accountId: string;
     bookedOn: string;
     amount: number;
     note?: string | null;
     externalRef?: string | null;
   }): Observable<ActualEntry> {
     return this.http.post<ActualEntry>(`${this.baseUrl}/actuals`, payload);
+  }
+
+  updateActualEntry(
+    id: string,
+    payload: {
+      budgetPositionId: string;
+      accountId: string;
+      bookedOn: string;
+      amount: number;
+      note?: string | null;
+      externalRef?: string | null;
+    }
+  ): Observable<ActualEntry> {
+    return this.http.patch<ActualEntry>(`${this.baseUrl}/actuals/${id}`, payload);
   }
 
   getMonthlySummary(baselineId: string, from: string, to: string): Observable<MonthlySummaryPoint[]> {
@@ -173,6 +271,10 @@ export class BudgetApiService {
 
   getBaselineInvitations(baselineId: string): Observable<BaselineInvitation[]> {
     return this.http.get<BaselineInvitation[]>(`${this.baseUrl}/baselines/${baselineId}/invitations`);
+  }
+
+  getSentBaselineInvitations(): Observable<BaselineInvitation[]> {
+    return this.http.get<BaselineInvitation[]>(`${this.baseUrl}/baselines/invitations/sent`);
   }
 
   revokeBaselineInvitation(baselineId: string, invitationId: string): Observable<void> {

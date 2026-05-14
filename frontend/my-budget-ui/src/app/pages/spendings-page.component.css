@@ -16,15 +16,23 @@
 }
 
 .spendings-col-position {
-  width: 26%;
+  width: 22%;
+}
+
+.spendings-col-account {
+  width: 16%;
 }
 
 .spendings-col-amount {
-  width: 14%;
+  width: 12%;
 }
 
 .spendings-col-note {
-  width: 48%;
+  width: 30%;
+}
+
+.spendings-col-actions {
+  width: 3rem;
 }
 
 .app-spendings-scroll .spendings-table > thead th {
@@ -32,4 +40,14 @@
   top: 0;
   z-index: 10;
   box-shadow: 0 1px 0 rgb(237 233 254);
+}
+
+.spendings-row-editable {
+  cursor: pointer;
+}
+
+.spendings-row-editing {
+  cursor: default;
+  background-color: rgb(245 243 255 / 0.85);
+  box-shadow: inset 3px 0 0 0 rgb(139 92 246);
 }

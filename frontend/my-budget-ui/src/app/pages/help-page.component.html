@@ -1,0 +1,62 @@
+<section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+  <article
+    class="mx-auto w-full max-w-3xl flex-1 rounded-lg border border-violet-100 bg-white/80 p-4 shadow-sm backdrop-blur sm:p-6"
+  >
+    <h1 class="text-xl font-semibold text-violet-900">{{ t('help.title') }}</h1>
+    <p class="mt-2 text-sm text-violet-600">{{ t('help.intro') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.toolbarTitle') }}</h2>
+    <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-violet-800">{{ t('help.toolbarBody') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.dashboardTitle') }}</h2>
+    <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-violet-800">{{ t('help.dashboardBody') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.budgetTitle') }}</h2>
+    <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-violet-800">{{ t('help.budgetBody') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.actualsTitle') }}</h2>
+    <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-violet-800">{{ t('help.actualsBody') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.accountsTitle') }}</h2>
+    <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-violet-800">{{ t('help.accountsBody') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.sharingTitle') }}</h2>
+    <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-violet-800">{{ t('help.sharingBody') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.workflowTitle') }}</h2>
+    <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-violet-800">{{ t('help.workflowBody') }}</p>
+
+    <h2 class="mt-8 text-base font-semibold text-violet-900">{{ t('help.buildTitle') }}</h2>
+    <p class="mt-2 text-sm leading-relaxed text-violet-800">{{ t('help.buildIntro') }}</p>
+    <dl class="mt-4 space-y-2 text-sm text-violet-900">
+      <div class="flex flex-wrap gap-x-3 gap-y-1 border-b border-violet-100 pb-2">
+        <dt class="font-medium text-violet-700">{{ t('help.uiVersionLabel') }}</dt>
+        <dd class="tabular-nums">v{{ appVersion }}</dd>
+      </div>
+      <div class="flex flex-wrap gap-x-3 gap-y-1 border-b border-violet-100 pb-2">
+        <dt class="font-medium text-violet-700">{{ t('help.uiBuildLabel') }}</dt>
+        <dd class="tabular-nums">{{ appBuildTimestampUtc | date: 'medium' : 'UTC' }} (UTC)</dd>
+      </div>
+      @if (apiBuild$ | async; as api) {
+        @if (api.version) {
+          <div class="flex flex-wrap gap-x-3 gap-y-1 border-b border-violet-100 pb-2">
+            <dt class="font-medium text-violet-700">{{ t('help.apiVersionLabel') }}</dt>
+            <dd class="tabular-nums">v{{ api.version }}</dd>
+          </div>
+          <div class="flex flex-wrap gap-x-3 gap-y-1">
+            <dt class="font-medium text-violet-700">{{ t('help.apiBuildLabel') }}</dt>
+            <dd class="tabular-nums">
+              @if (api.buildTimestampUtc) {
+                {{ api.buildTimestampUtc | date: 'medium' : 'UTC' }} (UTC)
+              } @else {
+                {{ t('help.apiBuildUnknown') }}
+              }
+            </dd>
+          </div>
+        } @else {
+          <p class="text-sm text-violet-600">{{ t('help.apiBuildUnavailable') }}</p>
+        }
+      }
+    </dl>
+  </article>
+</section>

@@ -13,18 +13,20 @@ namespace MyBudget.Api.Controllers;
 public class BaselinesController(
     BudgetDbContext dbContext,
     IUserContext userContext,
-    IDataSeeder dataSeeder,
+    IUserWorkspaceBootstrapper workspaceBootstrapper,
     IBaselineAccessService baselineAccessService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyCollection<BudgetBaselineDto>>> GetAll(CancellationToken cancellationToken)
     {
-        await dataSeeder.SeedAsync(cancellationToken);
         var userId = userContext.UserId;
 
         var baselines = await dbContext.Baselines
             .Where(x => x.UserId == userId || x.Members.Any(m => m.UserId == userId))
-            .OrderByDescending(x => x.CreatedAt)
+            .OrderByDescending(x => x.UserId == userId)
+            .ThenByDescending(x => x.IsPrimaryBudget)
+            .ThenBy(x => x.IsSampleDemo)
+            .ThenByDescending(x => x.CreatedAt)
             .Select(x => new
             {
                 x.Id,
@@ -33,6 +35,8 @@ public class BaselinesController(
                 x.CreatedAt,
                 x.ForkedFromBaselineId,
                 x.UserId,
+                x.IsPrimaryBudget,
+                x.IsSampleDemo,
                 MemberRole = x.Members
                     .Where(m => m.UserId == userId)
                     .Select(m => (BaselineAccessRole?)m.Role)
@@ -51,19 +55,59 @@ public class BaselinesController(
                 ? BaselineAccessKind.Owner
                 : x.MemberRole == BaselineAccessRole.Editor
                     ? BaselineAccessKind.Editor
-                    : BaselineAccessKind.Viewer)).ToList());
+                    : BaselineAccessKind.Viewer,
+            x.IsPrimaryBudget,
+            x.IsSampleDemo)).ToList());
+    }
+
+    /// <summary>Invitations you created across all budgets you own (pending, accepted, or revoked).</summary>
+    [HttpGet("invitations/sent")]
+    public async Task<ActionResult<IReadOnlyCollection<BaselineInvitationDto>>> GetSentInvitations(CancellationToken cancellationToken)
+    {
+        var userId = userContext.UserId;
+
+        var invitations = await dbContext.BaselineInvitations
+            .Where(x => x.CreatedByUserId == userId && x.Baseline.UserId == userId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => new BaselineInvitationDto(
+                x.Id,
+                x.BaselineId,
+                x.Baseline.Name,
+                x.Role,
+                x.ExpiresAt,
+                x.CreatedAt,
+                x.RevokedAt,
+                x.ConsumedAt,
+                x.AcceptedByUserId,
+                x.AcceptedByUser != null ? x.AcceptedByUser.DisplayName : null))
+            .ToListAsync(cancellationToken);
+
+        return Ok(invitations);
     }
 
     [HttpPost]
     public async Task<ActionResult<BudgetBaselineDto>> Create(CreateBaselineRequest request, CancellationToken cancellationToken)
     {
+        var userId = userContext.UserId;
+        var hasPrimaryBudget = await dbContext.Baselines.AnyAsync(
+            x => x.UserId == userId && x.IsPrimaryBudget,
+            cancellationToken);
+
+        var name = request.Name.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return BadRequest("Name is required.");
+        }
+
         var baseline = new BudgetBaseline
         {
             Id = Guid.NewGuid(),
-            UserId = userContext.UserId,
-            Name = request.Name.Trim(),
+            UserId = userId,
+            Name = name,
             Status = string.IsNullOrWhiteSpace(request.Status) ? "Draft" : request.Status.Trim(),
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            IsPrimaryBudget = !hasPrimaryBudget,
+            IsSampleDemo = false
         };
 
         dbContext.Baselines.Add(baseline);
@@ -76,7 +120,9 @@ public class BaselinesController(
             baseline.CreatedAt,
             baseline.ForkedFromBaselineId,
             baseline.UserId,
-            BaselineAccessKind.Owner));
+            BaselineAccessKind.Owner,
+            baseline.IsPrimaryBudget,
+            baseline.IsSampleDemo));
     }
 
     [HttpPatch("{id:guid}")]
@@ -94,8 +140,59 @@ public class BaselinesController(
 
         var baseline = await dbContext.Baselines.FirstAsync(x => x.Id == id, cancellationToken);
 
-        baseline.Name = request.Name.Trim();
-        baseline.Status = request.Status.Trim();
+        if (request.Name is null && request.Status is null && request.IsPrimaryBudget is null)
+        {
+            return BadRequest("At least one of name, status, or isPrimaryBudget is required.");
+        }
+
+        if (request.Name is not null)
+        {
+            var name = request.Name.Trim();
+            if (string.IsNullOrEmpty(name))
+            {
+                return BadRequest("Name cannot be empty.");
+            }
+
+            baseline.Name = name;
+        }
+
+        if (request.Status is not null)
+        {
+            var status = request.Status.Trim();
+            if (string.IsNullOrEmpty(status))
+            {
+                return BadRequest("Status cannot be empty.");
+            }
+
+            baseline.Status = status;
+        }
+
+        if (request.IsPrimaryBudget.HasValue)
+        {
+            if (request.IsPrimaryBudget.Value && baseline.IsSampleDemo)
+            {
+                return BadRequest("The sample workspace cannot be set as your default.");
+            }
+
+            if (request.IsPrimaryBudget.Value)
+            {
+                var ownerId = baseline.UserId;
+                var otherPrimaries = await dbContext.Baselines
+                    .Where(x => x.UserId == ownerId && x.Id != id && x.IsPrimaryBudget)
+                    .ToListAsync(cancellationToken);
+                foreach (var other in otherPrimaries)
+                {
+                    other.IsPrimaryBudget = false;
+                }
+
+                baseline.IsPrimaryBudget = true;
+            }
+            else if (baseline.IsPrimaryBudget)
+            {
+                return BadRequest("Set another owned budget as primary instead of clearing this one.");
+            }
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return Ok(new BudgetBaselineDto(
@@ -105,7 +202,9 @@ public class BaselinesController(
             baseline.CreatedAt,
             baseline.ForkedFromBaselineId,
             baseline.UserId,
-            BaselineAccessKind.Owner));
+            BaselineAccessKind.Owner,
+            baseline.IsPrimaryBudget,
+            baseline.IsSampleDemo));
     }
 
     [HttpDelete("{id:guid}")]
@@ -122,9 +221,28 @@ public class BaselinesController(
         }
 
         var baseline = await dbContext.Baselines.FirstAsync(x => x.Id == id, cancellationToken);
+        var ownerId = baseline.UserId;
+        var ownedCount = await dbContext.Baselines.CountAsync(x => x.UserId == ownerId, cancellationToken);
+
+        if (baseline.IsPrimaryBudget && ownedCount > 1)
+        {
+            var successor = await dbContext.Baselines
+                .Where(x => x.UserId == ownerId && x.Id != id)
+                .OrderBy(x => x.IsSampleDemo ? 1 : 0)
+                .ThenBy(x => x.CreatedAt)
+                .FirstAsync(cancellationToken);
+            successor.IsPrimaryBudget = true;
+        }
 
         dbContext.Baselines.Remove(baseline);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (!await dbContext.Baselines.AnyAsync(x => x.UserId == ownerId, cancellationToken))
+        {
+            workspaceBootstrapper.InvalidateWorkspaceBootstrapCache();
+            await workspaceBootstrapper.EnsureWorkspaceAsync(cancellationToken);
+        }
+
         return NoContent();
     }
 
@@ -153,7 +271,9 @@ public class BaselinesController(
             Name = request.Name.Trim(),
             Status = "Draft",
             CreatedAt = DateTimeOffset.UtcNow,
-            ForkedFromBaselineId = source.Id
+            ForkedFromBaselineId = source.Id,
+            IsPrimaryBudget = false,
+            IsSampleDemo = false
         };
 
         dbContext.Baselines.Add(fork);
@@ -206,7 +326,9 @@ public class BaselinesController(
             fork.CreatedAt,
             fork.ForkedFromBaselineId,
             fork.UserId,
-            BaselineAccessKind.Owner));
+            BaselineAccessKind.Owner,
+            fork.IsPrimaryBudget,
+            fork.IsSampleDemo));
     }
 
     [HttpGet("{id:guid}/compare")]

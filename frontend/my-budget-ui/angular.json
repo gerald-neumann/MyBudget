@@ -54,12 +54,19 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.js"
+          },
           "configurations": {
             "production": {
               "buildTarget": "my-budget-ui:build:production"
             },
             "development": {
               "buildTarget": "my-budget-ui:build:development"
+            },
+            "development-https": {
+              "buildTarget": "my-budget-ui:build:development",
+              "ssl": true
             }
           },
           "defaultConfiguration": "development"

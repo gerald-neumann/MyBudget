@@ -38,9 +38,29 @@ public class PlannedAmountsController(
             .ToList();
 
         var allowedSet = allowedPositionIds.ToHashSet();
+        var itemsToApply = request.Items.Where(x => allowedSet.Contains(x.BudgetPositionId)).ToList();
+        if (itemsToApply.Count == 0)
+        {
+            return Ok(Array.Empty<PlannedAmountDto>());
+        }
+
+        var baselineByPositionId = positionBaselines.ToDictionary(x => x.Id, x => x.BaselineId);
+        var lockPairs = itemsToApply
+            .Select(i => (BaselineId: baselineByPositionId[i.BudgetPositionId], i.Year))
+            .Distinct()
+            .OrderBy(x => x.BaselineId)
+            .ThenBy(x => x.Year)
+            .ToList();
+
+        await using var dbTransaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        foreach (var (baselineId, lockYear) in lockPairs)
+        {
+            await BaselineYearPlanningLock.AcquireAsync(dbContext.Database, baselineId, lockYear, cancellationToken);
+        }
+
         var touchedItems = new List<PlannedAmount>();
 
-        foreach (var item in request.Items.Where(x => allowedSet.Contains(x.BudgetPositionId)))
+        foreach (var item in itemsToApply)
         {
             var existing = await dbContext.PlannedAmounts.FirstOrDefaultAsync(
                 x => x.BudgetPositionId == item.BudgetPositionId && x.Year == item.Year && x.Month == item.Month,
@@ -64,6 +84,7 @@ public class PlannedAmountsController(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await dbTransaction.CommitAsync(cancellationToken);
 
         return Ok(touchedItems.Select(x => new PlannedAmountDto(x.Id, x.BudgetPositionId, x.Year, x.Month, x.Amount, x.IsOverride)).ToList());
     }

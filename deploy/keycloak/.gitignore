@@ -1,1 +1,4 @@
 .env
+# Local bind mount default (docker-compose KEYCLOAK_PGDATA_HOST:-./pgdata)
+pgdata/
+

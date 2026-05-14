@@ -4,3 +4,8 @@ GET {{MyBudget.Api_HostAddress}}/health
 Accept: application/json
 
 ###
+
+GET {{MyBudget.Api_HostAddress}}/build-info
+Accept: application/json
+
+###

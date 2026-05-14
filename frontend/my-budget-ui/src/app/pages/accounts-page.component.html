@@ -1,0 +1,173 @@
+<section class="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+  @if (message) {
+    <div
+      class="shrink-0 rounded border px-3 py-2 text-sm"
+      [class]="messageType === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
+    >
+      {{ t(message) }}
+    </div>
+  }
+
+  <article
+    class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4"
+  >
+    <div class="shrink-0">
+      <h2 class="text-lg font-semibold text-violet-900">{{ t('accounts.title') }}</h2>
+      <p class="mt-1 text-sm text-violet-600">{{ t('accounts.subtitle') }}</p>
+
+      <div class="mt-4 flex min-w-0 flex-col gap-3 border-b border-violet-100 pb-3">
+        <button
+          type="button"
+          class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded bg-violet-500 px-3 py-2 text-xs font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-sm"
+          [disabled]="newAccountRowActive() || savingNewAccount()"
+          (click)="openNewAccountRow()"
+        >
+          <span class="fa-sharp fa-solid fa-circle-plus text-sm leading-none sm:text-base" aria-hidden="true"></span>
+          {{ t('accounts.add') }}
+        </button>
+      </div>
+    </div>
+
+    @if (loading()) {
+      <p class="text-sm text-violet-600">{{ t('budget.loading') }}</p>
+    } @else {
+      <div
+        #accountsScroll
+        class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] [scrollbar-gutter:stable]"
+      >
+        <table class="w-full min-w-[20rem] text-sm">
+          <thead class="bg-violet-50 text-violet-800">
+            <tr>
+              <th class="px-2 py-2 text-left">{{ t('accounts.name') }}</th>
+              <th class="px-2 py-2 text-left">{{ t('accounts.type') }}</th>
+              <th class="px-2 py-2 text-right">{{ t('accounts.initialBalance') }}</th>
+              <th class="px-2 py-2 text-right">{{ t('accounts.currentBalance') }}</th>
+              <th class="px-2 py-2 text-left">{{ t('accounts.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (newAccountRowActive()) {
+              <tr
+                class="border-t border-violet-100 accounts-row-editing"
+                [class.opacity-60]="savingNewAccount()"
+              >
+                <td class="min-w-0 px-2 py-2">
+                  <input
+                    [(ngModel)]="newAccount.name"
+                    (blur)="tryCommitNewAccountOnBlur()"
+                    [disabled]="savingNewAccount()"
+                    class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-2 py-1 text-xs text-violet-900 sm:text-sm"
+                    [placeholder]="t('accounts.namePlaceholder')"
+                  />
+                </td>
+                <td class="min-w-0 px-2 py-2">
+                  <input
+                    [(ngModel)]="newAccount.typeLabel"
+                    (blur)="tryCommitNewAccountOnBlur()"
+                    [disabled]="savingNewAccount()"
+                    class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-2 py-1 text-xs text-violet-900 sm:text-sm"
+                    [placeholder]="t('accounts.typePlaceholder')"
+                  />
+                </td>
+                <td class="min-w-0 px-2 py-2">
+                  <input
+                    class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-2 py-1 text-right text-xs tabular-nums text-violet-900 sm:text-sm"
+                    type="text"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    [value]="newInitialInputValue()"
+                    [placeholder]="t('accounts.initialBalance')"
+                    [disabled]="savingNewAccount()"
+                    (focus)="onNewInitialFocus()"
+                    (input)="onNewInitialInput($any($event.target).value)"
+                    (blur)="onNewInitialBlur()"
+                  />
+                </td>
+                <td class="px-2 py-2 text-right tabular-nums text-violet-500">—</td>
+                <td class="min-w-0 whitespace-nowrap px-2 py-2 align-middle">
+                  <button
+                    type="button"
+                    class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition hover:border-violet-300 hover:bg-violet-50"
+                    (click)="cancelNewAccountRow($event)"
+                    [disabled]="savingNewAccount()"
+                    [attr.aria-label]="t('app.cancel')"
+                  >
+                    <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
+                  </button>
+                </td>
+              </tr>
+            }
+            @for (row of accounts; track row.id) {
+              <tr class="border-t border-violet-100 hover:bg-violet-50/60">
+                @if (editingId === row.id) {
+                  <td class="px-2 py-2">
+                    <input [(ngModel)]="editName" class="w-full rounded border border-violet-200 bg-white px-2 py-1 text-sm" />
+                  </td>
+                  <td class="px-2 py-2">
+                    <input [(ngModel)]="editTypeLabel" class="w-full rounded border border-violet-200 bg-white px-2 py-1 text-sm" />
+                  </td>
+                  <td class="px-2 py-2">
+                    <input
+                      class="w-full rounded border border-violet-200 bg-white px-2 py-1 text-right text-sm tabular-nums"
+                      type="text"
+                      inputmode="decimal"
+                      [value]="editInitialInputValue()"
+                      (focus)="onEditInitialFocus()"
+                      (input)="onEditInitialInput($any($event.target).value)"
+                      (blur)="onEditInitialBlur()"
+                    />
+                  </td>
+                  <td class="px-2 py-2 text-right tabular-nums text-violet-500">—</td>
+                  <td class="px-2 py-2">
+                    <div class="flex flex-wrap gap-2">
+                      <button type="button" class="rounded bg-violet-500 px-2 py-1 text-xs text-white hover:bg-violet-600" (click)="saveEdit()">
+                        {{ t('app.save') }}
+                      </button>
+                      <button type="button" class="rounded border border-violet-200 px-2 py-1 text-xs text-violet-800 hover:bg-violet-50" (click)="cancelEdit()">
+                        {{ t('app.cancel') }}
+                      </button>
+                    </div>
+                  </td>
+                } @else {
+                  <td class="px-2 py-2 font-medium text-violet-900">{{ row.name }}</td>
+                  <td class="px-2 py-2 text-violet-700">{{ row.typeLabel || '—' }}</td>
+                  <td class="px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(row.initialBalance)">
+                    {{ i18n.formatSignedAmount(row.initialBalance) }}
+                  </td>
+                  <td class="px-2 py-2 text-right tabular-nums font-medium" [ngClass]="i18n.signedAmountTextClass(row.currentBalance)">
+                    {{ i18n.formatSignedAmount(row.currentBalance) }}
+                  </td>
+                  <td class="px-2 py-2">
+                    <div class="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        class="rounded border border-violet-200 px-2 py-1 text-xs text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        [disabled]="savingNewAccount()"
+                        (click)="startEdit(row)"
+                      >
+                        {{ t('budget.barEdit') }}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        [disabled]="savingNewAccount()"
+                        (click)="deleteAccount(row)"
+                      >
+                        {{ t('budget.delete') }}
+                      </button>
+                    </div>
+                  </td>
+                }
+              </tr>
+            }
+            @if (accounts.length === 0 && !newAccountRowActive()) {
+              <tr class="border-t border-violet-100">
+                <td colspan="5" class="px-2 py-6 text-center text-sm text-violet-600">{{ t('accounts.empty') }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </article>
+</section>

@@ -1,3 +1,9 @@
 {
-  "apiBaseUrl": "http://localhost:5256"
+  "apiBaseUrl": "http://localhost:5256",
+  "keycloak": {
+    "enabled": false,
+    "url": "https://auth.flowparity.com/keycloak",
+    "realm": "my-budget",
+    "clientId": "my-budget-ui"
+  }
 }

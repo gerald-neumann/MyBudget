@@ -8,13 +8,11 @@ namespace MyBudget.Api.Controllers;
 
 [ApiController]
 [Route("categories")]
-public class CategoriesController(BudgetDbContext dbContext, IUserContext userContext, IDataSeeder dataSeeder) : ControllerBase
+public class CategoriesController(BudgetDbContext dbContext, IUserContext userContext) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyCollection<CategoryDto>>> GetAll(CancellationToken cancellationToken)
     {
-        await dataSeeder.SeedAsync(cancellationToken);
-
         var items = await dbContext.Categories
             .Where(x => x.UserId == userContext.UserId)
             .OrderBy(x => x.SortOrder)

@@ -1,5 +1,7 @@
 param(
     [switch]$EnsureDockerDb,
+    # Same as -EnsureDockerDb (common alternate name).
+    [switch]$UseDockerDb,
     [switch]$DryRun
 )
 
@@ -16,7 +18,7 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET SDK is not installed or not on PATH."
 }
 
-if ($EnsureDockerDb) {
+if ($EnsureDockerDb -or $UseDockerDb) {
     if (-not (Test-Path $dbStartScript)) {
         throw "db-start.ps1 not found at '$dbStartScript'."
     }

@@ -7,6 +7,7 @@ public class AppUser
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public ICollection<Category> Categories { get; set; } = new List<Category>();
+    public ICollection<Account> Accounts { get; set; } = new List<Account>();
     public ICollection<BudgetBaseline> Baselines { get; set; } = new List<BudgetBaseline>();
     public ICollection<BaselineMember> BaselineMemberships { get; set; } = new List<BaselineMember>();
     public ICollection<BaselineInvitation> AcceptedInvitations { get; set; } = new List<BaselineInvitation>();

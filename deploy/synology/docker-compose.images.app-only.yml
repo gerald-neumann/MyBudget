@@ -1,0 +1,67 @@
+# App stack only: PostgreSQL + API + UI (pre-built images). Keycloak runs in a separate project
+# (see deploy/keycloak/docker-compose.yml). Build on PC: Build-MyBudgetDockerImages.ps1
+#
+# On the NAS: copy this file as docker-compose.yml next to .env and ui-config.json. You MUST run
+# docker load -i MyBudget-app-images.tar BEFORE the first Container Manager start — images are
+# mybudget-api:local / mybudget-ui:local (not on Docker Hub). See deploy/synology/WINSCP-DEPLOY.md §4.
+# Set MYBUDGET_*_IMAGE in .env with :local tags. Set AUTH_AUTHORITY / FRONTEND_ORIGIN to URLs that
+# reach your Keycloak stack.
+
+name: mybudget
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mybudget-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Host path survives image updates and compose redeploys (create on NAS; chown for postgres — see WINSCP-DEPLOY.md).
+      - ${MYBUDGET_POSTGRES_DATA:-./data/pgdata}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    image: ${MYBUDGET_API_IMAGE:-mybudget-api:local}
+    container_name: mybudget-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+      DISABLE_HTTPS_REDIRECT: "true"
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Auth__Enabled: "${AUTH_ENABLED}"
+      Auth__Authority: "${AUTH_AUTHORITY}"
+      Auth__Audience: "${AUTH_AUDIENCE}"
+      Auth__RequireHttpsMetadata: "${AUTH_REQUIRE_HTTPS_METADATA}"
+      FrontendOrigin: "${FRONTEND_ORIGIN}"
+      ENABLE_SWAGGER: "${ENABLE_SWAGGER:-false}"
+    ports:
+      - "${API_HOST_PORT:-5256}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    image: ${MYBUDGET_UI_IMAGE:-mybudget-ui:local}
+    container_name: mybudget-ui
+    restart: unless-stopped
+    ports:
+      - "${UI_HOST_PORT:-9080}:80"
+    volumes:
+      - ./ui-config.json:/usr/share/nginx/html/config.json:ro
+    depends_on:
+      api:
+        condition: service_healthy

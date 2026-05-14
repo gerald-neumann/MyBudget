@@ -1,4 +1,4 @@
-<section class="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+<section class="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4">
   @if (message) {
     <div
       class="shrink-0 rounded border px-3 py-2 text-sm"
@@ -9,90 +9,348 @@
   }
 
   <article
-    class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4"
+    class="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4"
   >
     <div class="shrink-0">
-      <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.actualTitle') }}</h2>
-      <p class="mt-1 text-sm text-violet-600">{{ t('budget.actualSubtitle') }}</p>
-
-      <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-        <select
-          [(ngModel)]="newActual.budgetPositionId"
-          class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-sm text-violet-900 sm:min-h-0 sm:py-1 xl:col-span-1 xl:w-auto"
-        >
-        <option value="">{{ t('budget.selectPosition') }}</option>
-        @for (position of positions; track position.id) {
-          <option [value]="position.id">{{ position.name }}</option>
-        }
-        </select>
-        <input
-          [(ngModel)]="newActual.bookedOn"
-          class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-sm text-violet-900 sm:min-h-0 sm:py-1"
-          type="date"
-        />
-        <input
-          class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-right text-sm tabular-nums text-violet-900 sm:min-h-0 sm:py-1"
-          type="text"
-          inputmode="decimal"
-          autocomplete="off"
-          [value]="newActualAmountInputValue()"
-          [placeholder]="t('budget.amountPlaceholder')"
-          (focus)="onNewActualAmountFocus()"
-          (input)="onNewActualAmountInput($any($event.target).value)"
-          (blur)="onNewActualAmountBlur()"
-          (keydown.enter)="$any($event.target).blur()"
-        />
-        <input
-          [(ngModel)]="newActual.note"
-          class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-sm text-violet-900 sm:min-h-0 sm:py-1"
-          [placeholder]="t('budget.notePlaceholder')"
-        />
-        <button
-          type="button"
-          class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:py-1 xl:col-span-1 xl:w-auto"
-          (click)="addActualEntry()"
-        >
-          <span class="fa-solid fa-plus leading-none" aria-hidden="true"></span>
-          {{ t('budget.addActual') }}
-        </button>
-      </div>
+      <h2 class="text-lg font-semibold text-violet-900">{{ spendingsPageTitle() }}</h2>
     </div>
+
+    @if (referenceDataReady() && state.selectedBaselineId() && positions.length > 0) {
+      <div class="shrink-0 flex flex-col gap-2 border-b border-violet-100 pb-3">
+        <div class="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,14rem)_1fr]">
+          <label class="flex min-w-0 flex-col gap-1">
+            <span class="text-xs font-medium text-violet-800">{{ t('budget.spendingsFilterPeriod') }}</span>
+            <select
+              [(ngModel)]="datePreset"
+              (ngModelChange)="onDatePresetChange()"
+              class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-sm text-violet-900 sm:min-h-0 sm:py-1"
+            >
+              <option value="currentMonth">{{ t('budget.spendingsPresetCurrentMonth') }}</option>
+              <option value="prevMonth">{{ t('budget.spendingsPresetPrevMonth') }}</option>
+              <option value="currentYear">{{ t('budget.spendingsPresetCurrentYear') }}</option>
+              <option value="lastYear">{{ t('budget.spendingsPresetLastYear') }}</option>
+              <option value="all">{{ t('budget.spendingsPresetAll') }}</option>
+            </select>
+          </label>
+          <label class="flex min-w-0 flex-col gap-1">
+            <span class="text-xs font-medium text-violet-800">{{ t('budget.spendingsSearchLabel') }}</span>
+            <div
+              class="ledger-search-combo flex min-h-10 w-full cursor-text items-center gap-2 rounded border border-violet-200 bg-violet-50 px-2 py-1 text-sm text-violet-900 sm:min-h-9"
+              (click)="focusLedgerSearchDraft($event)"
+            >
+              <span class="fa-sharp fa-solid fa-magnifying-glass shrink-0 text-violet-400" aria-hidden="true"></span>
+              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                @for (chip of ledgerSearchChips; track chip.id) {
+                  <span
+                    class="inline-flex max-w-full items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium tabular-nums"
+                    [ngClass]="ledgerSearchChipClassList(chip)"
+                  >
+                    <span class="max-w-[min(18rem,55vw)] truncate">{{ ledgerSearchChipDisplayLabel(chip) }}</span>
+                    <button
+                      type="button"
+                      class="ledger-search-chip-remove rounded p-0.5 leading-none text-violet-600 hover:bg-violet-200/80 hover:text-violet-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                      (mousedown)="$event.preventDefault()"
+                      (click)="removeLedgerSearchChip(chip.id); $event.stopPropagation()"
+                      [attr.aria-label]="t('budget.ledgerSearchChipRemoveAria')"
+                    >
+                      ×
+                    </button>
+                  </span>
+                }
+                <input
+                  #ledgerSearchDraft
+                  [(ngModel)]="searchDraft"
+                  (keydown)="onLedgerSearchDraftKeydown($event)"
+                  (blur)="onLedgerSearchDraftBlur()"
+                  type="search"
+                  enterkeyhint="search"
+                  autocomplete="off"
+                  class="min-w-[6rem] flex-1 border-0 bg-transparent py-1 text-sm text-violet-900 outline-none placeholder:text-violet-400 [&::-webkit-search-cancel-button]:hidden"
+                  [placeholder]="ledgerSearchChips.length === 0 ? t('budget.spendingsSearchPlaceholder') : ''"
+                />
+              </div>
+            </div>
+          </label>
+        </div>
+        @if (accounts.length > 0) {
+          <button
+            type="button"
+            class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded bg-violet-500 px-3 py-2 text-xs font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-sm"
+            [disabled]="!canManageSpendings() || newEntryRowActive() || savingNewEntry()"
+            (click)="openNewEntryRow()"
+          >
+            <span class="fa-sharp fa-solid fa-circle-plus text-sm leading-none sm:text-base" aria-hidden="true"></span>
+            {{ t('budget.addActual') }}
+          </button>
+        }
+      </div>
+    }
+
+    @if (!loading()) {
+      <div class="shrink-0">
+        @if (!state.selectedBaselineId()) {
+          <p class="text-sm text-amber-800">{{ t('msg.selectBaselineFirst') }}</p>
+        } @else if (positions.length === 0) {
+          <p class="text-sm text-violet-700">{{ t('budget.actualsNoPositions') }}</p>
+        } @else if (accounts.length === 0) {
+          <p class="text-sm text-amber-800">{{ t('budget.actualsNoAccounts') }}</p>
+        }
+      </div>
+    }
 
     @if (loading()) {
       <p class="shrink-0 text-sm text-violet-600">{{ t('budget.loading') }}</p>
-    } @else {
+    } @else if (referenceDataReady() && state.selectedBaselineId() && positions.length > 0) {
       <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded border border-violet-100">
         <div
+          #spendingsScroll
           class="app-spendings-scroll min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+          (scroll)="onSpendingsScroll($event)"
         >
-        <table class="spendings-table w-full min-w-0 text-sm">
-          <colgroup>
-            <col class="spendings-col-date" />
-            <col class="spendings-col-position" />
-            <col class="spendings-col-amount" />
-            <col class="spendings-col-note" />
-          </colgroup>
-          <thead class="bg-violet-50 text-violet-800">
-            <tr>
-              <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.date') }}</th>
-              <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.position') }}</th>
-              <th class="min-w-0 bg-violet-50 px-2 py-2 text-right">{{ t('budget.amountPlaceholder') }}</th>
-              <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.note') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (entry of actualEntries; track entry.id) {
-              <tr class="border-t border-violet-100 hover:bg-violet-50/60">
-                <td class="min-w-0 px-2 py-2 tabular-nums">{{ entry.bookedOn | date:'yyyy-MM-dd' }}</td>
-                <td class="min-w-0 px-2 py-2">
-                  <span class="block truncate" [title]="positionName(entry.budgetPositionId)">{{ positionName(entry.budgetPositionId) }}</span>
-                </td>
-                <td class="min-w-0 px-2 py-2 text-right tabular-nums">{{ entry.amount | number:'1.2-2':i18n.numberLocale() }}</td>
-                <td class="min-w-0 break-words px-2 py-2">{{ entry.note || '-' }}</td>
-              </tr>
+          @if (loadingActuals() && actualEntries.length === 0) {
+            <p class="px-2 py-6 text-center text-sm text-violet-600">{{ t('budget.spendingsLoadingEntries') }}</p>
+          } @else {
+            <table class="spendings-table w-full min-w-0 text-sm">
+              <colgroup>
+                <col class="spendings-col-date" />
+                <col class="spendings-col-position" />
+                <col class="spendings-col-account" />
+                <col class="spendings-col-amount" />
+                <col class="spendings-col-note" />
+                <col class="spendings-col-actions" />
+              </colgroup>
+              <thead class="bg-violet-50 text-violet-800">
+                <tr>
+                  <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.date') }}</th>
+                  <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.position') }}</th>
+                  <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.accountColumn') }}</th>
+                  <th class="min-w-0 bg-violet-50 px-2 py-2 text-right">{{ t('budget.amountPlaceholder') }}</th>
+                  <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.note') }}</th>
+                  <th class="min-w-0 bg-violet-50 px-0 py-2 text-right" aria-hidden="true"></th>
+                </tr>
+              </thead>
+              <tbody>
+                @if (newEntryRowActive()) {
+                  <tr
+                    class="border-t border-violet-100 spendings-row-editing"
+                    [class.opacity-60]="savingNewEntry()"
+                  >
+                    <td class="min-w-0 px-1 py-1 tabular-nums sm:px-2 sm:py-2">
+                      <input
+                        type="date"
+                        [(ngModel)]="newActual.bookedOn"
+                        (blur)="tryCommitNewEntryOnBlur()"
+                        [disabled]="savingNewEntry()"
+                        class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                      />
+                    </td>
+                    <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
+                      <select
+                        [(ngModel)]="newActual.budgetPositionId"
+                        (blur)="tryCommitNewEntryOnBlur()"
+                        [disabled]="savingNewEntry()"
+                        class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                      >
+                        @for (group of positionsByCategory(); track group.categoryId) {
+                          <optgroup [attr.label]="group.label">
+                            @for (position of group.positions; track position.id) {
+                              <option [value]="position.id">{{ i18n.translateSampleToken(position.name) }}</option>
+                            }
+                          </optgroup>
+                        }
+                      </select>
+                    </td>
+                    <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
+                      <select
+                        [(ngModel)]="newActual.accountId"
+                        (blur)="tryCommitNewEntryOnBlur()"
+                        [disabled]="savingNewEntry() || accounts.length === 0"
+                        class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                      >
+                        @for (account of accounts; track account.id) {
+                          <option [value]="account.id">{{ account.name }}</option>
+                        }
+                      </select>
+                    </td>
+                    <td class="min-w-0 px-1 py-1 text-right sm:px-2 sm:py-2">
+                      <input
+                        type="text"
+                        inputmode="decimal"
+                        autocomplete="off"
+                        [disabled]="savingNewEntry()"
+                        class="min-h-9 w-full rounded border border-violet-300 bg-white px-1 py-1 text-right text-xs tabular-nums sm:text-sm"
+                        [ngClass]="newActual.budgetPositionId ? i18n.signedAmountTextClass(newActual.amount) : 'text-violet-900'"
+                        [value]="newActualAmountInputValue()"
+                        [placeholder]="t('budget.amountPlaceholder')"
+                        (focus)="onNewActualAmountFocus()"
+                        (input)="onNewActualAmountInput($any($event.target).value)"
+                        (blur)="onNewActualAmountBlur()"
+                        (keydown.enter)="$any($event.target).blur()"
+                      />
+                    </td>
+                    <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
+                      <input
+                        type="text"
+                        [(ngModel)]="newActual.note"
+                        (blur)="tryCommitNewEntryOnBlur()"
+                        [disabled]="savingNewEntry()"
+                        autocomplete="off"
+                        class="min-h-9 w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                        [placeholder]="t('budget.notePlaceholder')"
+                      />
+                    </td>
+                    <td class="min-w-0 whitespace-nowrap px-1 py-1 align-middle text-right sm:px-2 sm:py-2">
+                      <button
+                        type="button"
+                        class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition hover:border-violet-300 hover:bg-violet-50"
+                        (click)="cancelNewEntryRow($event)"
+                        [disabled]="savingNewEntry()"
+                        [attr.aria-label]="t('app.cancel')"
+                      >
+                        <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
+                      </button>
+                    </td>
+                  </tr>
+                }
+                @for (entry of actualEntries; track entry.id) {
+                  <tr
+                    class="border-t border-violet-100 transition-colors hover:bg-violet-50/60"
+                    [class.spendings-row-editable]="canManageSpendings() && editingEntryId !== entry.id"
+                    [class.spendings-row-editing]="editingEntryId === entry.id"
+                    [class.opacity-60]="savingEdit() && editingEntryId === entry.id"
+                    (click)="onActualRowClick(entry)"
+                  >
+                    @if (editingEntryId === entry.id && editDraft) {
+                      <td class="min-w-0 px-1 py-1 tabular-nums sm:px-2 sm:py-2">
+                        <input
+                          type="date"
+                          [(ngModel)]="editDraft.bookedOn"
+                          (blur)="onEditCellBlur()"
+                          class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                        />
+                      </td>
+                      <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
+                        <select
+                          [(ngModel)]="editDraft.budgetPositionId"
+                          (blur)="onEditCellBlur()"
+                          class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                        >
+                          @for (group of positionsByCategory(); track group.categoryId) {
+                            <optgroup [attr.label]="group.label">
+                              @for (position of group.positions; track position.id) {
+                                <option [value]="position.id">{{ i18n.translateSampleToken(position.name) }}</option>
+                              }
+                            </optgroup>
+                          }
+                        </select>
+                      </td>
+                      <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
+                        <select
+                          [(ngModel)]="editDraft.accountId"
+                          (blur)="onEditCellBlur()"
+                          class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                        >
+                          @for (account of accounts; track account.id) {
+                            <option [value]="account.id">{{ account.name }}</option>
+                          }
+                        </select>
+                      </td>
+                    <td class="min-w-0 px-1 py-1 text-right sm:px-2 sm:py-2">
+                      <input
+                        type="text"
+                        inputmode="decimal"
+                        autocomplete="off"
+                        class="min-h-9 w-full rounded border border-violet-300 bg-white px-1 py-1 text-right text-xs tabular-nums sm:text-sm"
+                        [ngClass]="i18n.signedAmountTextClass(editDraft.amount)"
+                        [value]="editAmountDisplayValue()"
+                        (focus)="onEditAmountFocus()"
+                        (input)="onEditAmountInput($any($event.target).value)"
+                        (blur)="onEditAmountBlur()"
+                        (keydown.enter)="$any($event.target).blur()"
+                      />
+                    </td>
+                    <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
+                      <input
+                        type="text"
+                        [(ngModel)]="editDraft.note"
+                        (blur)="onEditCellBlur()"
+                        autocomplete="off"
+                        class="min-h-9 w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
+                        [placeholder]="t('budget.notePlaceholder')"
+                      />
+                    </td>
+                    <td class="min-w-0 whitespace-nowrap px-1 py-1 align-middle text-right sm:px-2 sm:py-2">
+                      <button
+                        type="button"
+                        class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition hover:border-violet-300 hover:bg-violet-50"
+                        (click)="cancelRowEditing($event)"
+                        [disabled]="savingEdit()"
+                        [attr.aria-label]="t('app.cancel')"
+                      >
+                        <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
+                      </button>
+                    </td>
+                    } @else {
+                      <td class="min-w-0 px-2 py-2 tabular-nums">{{ entry.bookedOn | date: 'yyyy-MM-dd' }}</td>
+                      <td class="min-w-0 px-2 py-2">
+                        <span class="block truncate" [title]="entryPositionLabel(entry)">{{ entryPositionLabel(entry) }}</span>
+                      </td>
+                      <td class="min-w-0 px-2 py-2">
+                        <span class="block truncate" [title]="entryAccountLabel(entry)">{{ entryAccountLabel(entry) }}</span>
+                      </td>
+                      <td
+                        class="min-w-0 px-2 py-2 text-right tabular-nums"
+                        [ngClass]="i18n.signedAmountTextClass(displayAmountForEntry(entry))"
+                      >
+                        {{ i18n.formatSignedAmount(displayAmountForEntry(entry)) }}
+                      </td>
+                      <td class="min-w-0 break-words px-2 py-2">
+                        {{ entry.note ? i18n.translateSampleToken(entry.note) : '-' }}
+                      </td>
+                      <td class="min-w-0 px-0 py-2"></td>
+                    }
+                  </tr>
+                }
+                @if (actualEntries.length === 0 && !loadingActuals() && !newEntryRowActive()) {
+                  <tr>
+                    <td colspan="6" class="border-t border-violet-100 px-4 py-8 text-center text-sm text-violet-600">
+                      {{ t('budget.spendingsEmpty') }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+
+            @if (loadingMoreActuals()) {
+              <p class="border-t border-violet-100 px-2 py-3 text-center text-sm text-violet-600">
+                {{ t('budget.spendingsLoadMore') }}
+              </p>
             }
-          </tbody>
-        </table>
+            @if (!loadingActuals() && !loadingMoreActuals() && actualEntries.length > 0 && !hasMoreActuals()) {
+              <p class="border-t border-violet-100 px-2 py-2 text-center text-xs text-violet-500">{{ t('budget.spendingsEndOfList') }}</p>
+            }
+          }
+        </div>
+        <div
+          class="app-spendings-summary min-w-0 shrink-0 overflow-x-auto border-t-2 border-violet-200 bg-violet-100 shadow-[0_-6px_16px_-8px_rgba(91,33,182,0.18)]"
+        >
+          <div class="flex min-w-0 flex-wrap items-end justify-between gap-x-4 gap-y-2 px-3 py-2.5 sm:px-4">
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-semibold uppercase tracking-wide text-violet-800">{{ t('budget.spendingsSumLabel') }}</div>
+              @if (hasMoreActuals()) {
+                <p class="mt-0.5 max-w-xl text-xs leading-snug text-violet-600">{{ t('budget.spendingsSumPartialHint') }}</p>
+              }
+            </div>
+            <div
+              class="shrink-0 text-right text-base font-semibold tabular-nums sm:text-lg"
+              [ngClass]="i18n.signedAmountTextClass(loadedActualsDisplaySum())"
+            >
+              {{ i18n.formatSignedAmount(loadedActualsDisplaySum()) }}
+            </div>
+          </div>
+          <p class="border-t border-violet-200/70 px-3 py-2 text-center text-xs text-violet-700 sm:px-4">
+            {{ t('budget.spendingsTotalCount', { count: actualsTotalCount }) }}
+          </p>
         </div>
       </div>
     }

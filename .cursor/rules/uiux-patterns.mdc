@@ -1,0 +1,29 @@
+---
+description: Primary “add item” affordance and end-of-page totals (budget reference)
+globs: frontend/my-budget-ui/**/*
+alwaysApply: false
+---
+
+# UI/UX: new items and page totals
+
+## Adding new items (preferred pattern)
+
+Follow the **Budget** page primary action: a **filled violet** button with **`fa-circle-plus`** and a short verb + noun label (e.g. German “Position anlegen”, English “Add position”), placed in the **page header row** under the title (toolbar strip with `border-b`), **not** hidden inside the table footer.
+
+- Reuse the same **Tailwind classes** and **icon + gap-2** layout as `budget-page.component.html` (the control next to `openNewPositionSheet()`).
+- **Disable** the button when the user cannot create (same idea as `canManageSelectedBaseline()`).
+- **Create** flows may still use a **bottom sheet / centered dialog** when the form is long or multi-field — that matches the budget “new position” sheet and the project inline-editing rule for creates.
+- **Compact creates** (e.g. accounts): a few fields inline above the table is fine; keep the **same primary button** (violet + `fa-circle-plus`) in a **header strip with `border-b`**, not a dashed footer inside the table.
+
+## Page sums / totals
+
+Prefer **totals and roll-ups at the end of the main content** for the page (or card), not only in a floating header.
+
+- After scrollable lists or wide tables, add a **summary band** visually separated from the body: e.g. top border, tinted background (`bg-violet-100`), optional upward shadow so it reads as a footer strip.
+- When the main UI is a **column-aligned grid or table**, keep the summary **column-aligned** with the same table/grid structure (see `app-budget-summary` and `budget-table-summary` in `budget-page.component.html`).
+- Use **tabular numbers**, right-aligned amounts, and shared **signed amount** color classes where the rest of the app does.
+
+## Reference implementation
+
+- **Add control + sheet**: `budget-page.component.html` / `budget-page.component.ts` — `openNewPositionSheet`, `newPositionSheetOpen`.
+- **End totals**: same file — scrollable data block, then `app-budget-summary` with monthly sums and running cashflow rows.

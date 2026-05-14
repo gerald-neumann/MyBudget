@@ -1,4 +1,7 @@
-<section class="min-w-0 space-y-4">
+<section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+  <div
+    class="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] pr-0.5 [scrollbar-gutter:stable]"
+  >
   <article class="min-w-0 rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4">
     <h2 class="text-lg font-semibold text-violet-900">{{ t('dashboard.cashflowTitle') }}</h2>
     <p class="text-sm text-violet-600">{{ t('dashboard.cashflowSubtitle') }}</p>
@@ -75,7 +78,7 @@
           <option value="">{{ t('dashboard.selectBaseline') }}</option>
           @for (baseline of state.baselines(); track baseline.id) {
             @if (baseline.id !== state.selectedBaselineId()) {
-              <option [value]="baseline.id">{{ baseline.name }}</option>
+              <option [value]="baseline.id">{{ i18n.translateBaselineDisplayName(baseline.name) }}</option>
             }
           }
         </select>
@@ -84,7 +87,7 @@
           class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:w-auto sm:py-1"
           (click)="loadComparison()"
         >
-          <span class="fa-solid fa-right-left leading-none" aria-hidden="true"></span>
+          <span class="fa-sharp fa-solid fa-right-left leading-none" aria-hidden="true"></span>
           {{ t('dashboard.compare') }}
         </button>
       </div>
@@ -110,15 +113,37 @@
           @for (row of comparisonRows; track row.month) {
             <tr class="border-t border-violet-100 hover:bg-violet-50/60">
               <td class="min-w-0 px-2 py-2">{{ monthLabel(row.month) }}</td>
-              <td class="min-w-0 px-2 py-2 text-right tabular-nums">{{ row.basePlanned | number:'1.2-2':i18n.numberLocale() }}</td>
-              <td class="min-w-0 px-2 py-2 text-right tabular-nums">{{ row.comparePlanned | number:'1.2-2':i18n.numberLocale() }}</td>
-              <td class="min-w-0 px-2 py-2 text-right tabular-nums" [class]="row.delta >= 0 ? 'text-red-700' : 'text-emerald-700'">
-                {{ row.delta | number:'1.2-2':i18n.numberLocale() }}
+              <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(row.basePlanned)">
+                {{ i18n.formatSignedAmount(row.basePlanned) }}
+              </td>
+              <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(row.comparePlanned)">
+                {{ i18n.formatSignedAmount(row.comparePlanned) }}
+              </td>
+              <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(row.delta)">
+                {{ i18n.formatSignedAmount(row.delta) }}
               </td>
             </tr>
           }
         </tbody>
+        @if (comparisonRows.length > 0) {
+          @let totals = comparisonYearTotals();
+          <tfoot>
+            <tr class="border-t-2 border-violet-200 bg-violet-100 font-medium text-violet-900">
+              <td class="min-w-0 px-2 py-2">{{ t('dashboard.comparisonTotal') }}</td>
+              <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(totals.base)">
+                {{ i18n.formatSignedAmount(totals.base) }}
+              </td>
+              <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(totals.compare)">
+                {{ i18n.formatSignedAmount(totals.compare) }}
+              </td>
+              <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(totals.delta)">
+                {{ i18n.formatSignedAmount(totals.delta) }}
+              </td>
+            </tr>
+          </tfoot>
+        }
       </table>
     </div>
   </article>
+  </div>
 </section>

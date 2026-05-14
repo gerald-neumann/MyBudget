@@ -6,6 +6,11 @@ public class BudgetBaseline
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Status { get; set; } = "Draft";
+    /// <summary>Exactly one owned baseline per user should be primary — the default workspace when returning to the app. Additional budgets are non-primary.</summary>
+    public bool IsPrimaryBudget { get; set; }
+
+    /// <summary>Built-in tutorial/demo workspace (e.g. seeded "Example household"). Not eligible as primary default.</summary>
+    public bool IsSampleDemo { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public Guid? ForkedFromBaselineId { get; set; }
 

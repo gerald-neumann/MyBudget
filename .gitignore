@@ -2,6 +2,8 @@
 **/bin/
 **/obj/
 **/out/
+*.dll
+*.exe
 *.user
 *.suo
 *.userosscache
@@ -51,7 +53,7 @@ portainer-data/
 # Local-only compose overrides
 docker-compose.override.yml
 
-# --- Docker image bundles (Synology / offline deploy) ---
+# --- Docker image bundles (offline / scp deploy) ---
 *-app-images.tar
 
 # --- Secrets & local env (keep *.example committed) ---
@@ -59,6 +61,15 @@ docker-compose.override.yml
 .env.local
 .env.*.local
 !.env.example
+
+# Optional: one-line Portainer API token for Deploy-PortainerMyBudgetStack.ps1 (prefer $env:USERPROFILE\.secrets\…)
+deploy/portainer/.portainer-access-token
+
+# Agent / local compile scratch (never commit)
+_agent_verify_build*/
+_agent_build*/
+_compile_check_out*/
+_compile_check_out2*/
 
 # --- OS & editors ---
 .DS_Store

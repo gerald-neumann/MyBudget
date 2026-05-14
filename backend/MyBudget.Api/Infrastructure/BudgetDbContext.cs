@@ -6,6 +6,7 @@ namespace MyBudget.Api.Infrastructure;
 public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbContext(options)
 {
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<Account> Accounts => Set<Account>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<BudgetBaseline> Baselines => Set<BudgetBaseline>();
     public DbSet<BudgetPosition> Positions => Set<BudgetPosition>();
@@ -32,11 +33,27 @@ public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbCont
             entity.HasOne(x => x.User).WithMany(x => x.Categories).HasForeignKey(x => x.UserId);
         });
 
+        modelBuilder.Entity<Account>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160);
+            entity.Property(x => x.TypeLabel).HasMaxLength(80);
+            entity.HasIndex(x => new { x.UserId, x.Name }).IsUnique();
+            entity.HasOne(x => x.User).WithMany(x => x.Accounts).HasForeignKey(x => x.UserId);
+        });
+
         modelBuilder.Entity<BudgetBaseline>(entity =>
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(160);
             entity.Property(x => x.Status).HasMaxLength(32);
+            entity.Property(x => x.IsPrimaryBudget).HasDefaultValue(false);
+            entity.Property(x => x.IsSampleDemo).HasDefaultValue(false);
+            entity
+                .HasIndex(x => x.UserId)
+                .IsUnique()
+                .HasDatabaseName("ux_baselines_user_id_primary_budget")
+                .HasFilter("is_primary_budget IS TRUE");
             entity.HasOne(x => x.User).WithMany(x => x.Baselines).HasForeignKey(x => x.UserId);
             entity.HasOne(x => x.ForkedFromBaseline).WithMany(x => x.Forks).HasForeignKey(x => x.ForkedFromBaselineId);
         });
@@ -63,7 +80,9 @@ public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbCont
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Note).HasMaxLength(500);
             entity.Property(x => x.ExternalRef).HasMaxLength(120);
+            entity.HasIndex(x => x.AccountId);
             entity.HasOne(x => x.BudgetPosition).WithMany(x => x.ActualEntries).HasForeignKey(x => x.BudgetPositionId);
+            entity.HasOne(x => x.Account).WithMany(x => x.ActualEntries).HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<BaselineMember>(entity =>

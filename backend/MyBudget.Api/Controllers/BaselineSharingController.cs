@@ -70,12 +70,15 @@ public class BaselineSharingController(
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new BaselineInvitationDto(
                 x.Id,
+                x.BaselineId,
+                x.Baseline.Name,
                 x.Role,
                 x.ExpiresAt,
                 x.CreatedAt,
                 x.RevokedAt,
                 x.ConsumedAt,
-                x.AcceptedByUserId))
+                x.AcceptedByUserId,
+                x.AcceptedByUser != null ? x.AcceptedByUser.DisplayName : null))
             .ToListAsync(cancellationToken);
 
         return Ok(invitations);
@@ -101,6 +104,16 @@ public class BaselineSharingController(
             return NotFound();
         }
 
+        if (invitation.ConsumedAt.HasValue)
+        {
+            return BadRequest("Invitation was already accepted.");
+        }
+
+        if (invitation.RevokedAt.HasValue)
+        {
+            return BadRequest("Invitation is already revoked.");
+        }
+
         invitation.RevokedAt = DateTimeOffset.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         return NoContent();
@@ -122,7 +135,7 @@ public class BaselineSharingController(
         var members = await dbContext.BaselineMembers
             .Where(x => x.BaselineId == baselineId)
             .OrderBy(x => x.CreatedAt)
-            .Select(x => new BaselineMemberDto(x.UserId, x.Role, x.CreatedAt))
+            .Select(x => new BaselineMemberDto(x.UserId, x.User.DisplayName, x.Role, x.CreatedAt))
             .ToListAsync(cancellationToken);
 
         return Ok(members);
@@ -146,6 +159,7 @@ public class BaselineSharingController(
         }
 
         var member = await dbContext.BaselineMembers
+            .Include(x => x.User)
             .FirstOrDefaultAsync(x => x.BaselineId == baselineId && x.UserId == memberUserId, cancellationToken);
         if (member is null)
         {
@@ -154,7 +168,7 @@ public class BaselineSharingController(
 
         member.Role = request.Role;
         await dbContext.SaveChangesAsync(cancellationToken);
-        return Ok(new BaselineMemberDto(member.UserId, member.Role, member.CreatedAt));
+        return Ok(new BaselineMemberDto(member.UserId, member.User.DisplayName, member.Role, member.CreatedAt));
     }
 
     [HttpDelete("baselines/{baselineId:guid}/members/{memberUserId:guid}")]

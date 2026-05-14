@@ -12,8 +12,9 @@ This project contains:
 From project root:
 
 - `.\db-start.ps1` starts local PostgreSQL via Docker
+- `.\db-start.ps1 -ResetDevDatabase` recreates the `my_budget_dev` database (use after replacing EF migrations so `Migrate()` does not hit existing tables)
 - `.\backend-start.ps1` starts the API (expects PostgreSQL per `ConnectionStrings:Database`)
-- `.\backend-start.ps1 -EnsureDockerDb` starts Docker PostgreSQL first, then starts the API
+- `.\backend-start.ps1 -EnsureDockerDb` (or **`-UseDockerDb`**) starts Docker PostgreSQL first, then starts the API
 - `.\frontent-start.ps1` starts Angular dev server (installs deps automatically if needed)
 - `.\db-stop.ps1` stops local PostgreSQL container
 
@@ -53,18 +54,23 @@ In `backend/MyBudget.Api/appsettings.json` (or environment variables), set:
 
 No controller logic needs to change when switching from dev mode to Keycloak mode.
 
-### Deploying on Synology (Container Manager)
+### Deploying with Portainer (production)
 
-- **Keycloak only (Portainer API or compose):** `deploy/SYNOLOGY-KEYCLOAK.md` and `Deploy-MyBudgetKeycloak.ps1` / `Sync-KeycloakToSynology.ps1`.
-- **API + UI + Keycloak over SSH compose:** `deploy/synology/docker-compose.yml` and `Deploy-SynologyStack.ps1` (see the same doc, section “Option D”).
-- **Build API/UI on your PC, only images + compose on the NAS:** `docker-compose.images.yml`, `Deploy-SynologyPrebuiltFromLocal.ps1` (see `deploy/SYNOLOGY-KEYCLOAK.md`, section “Option E”).
+End-to-end flow, DNS, TLS, Keycloak, and Portainer API examples: **`deploy/portainer/PORTAINER-FLOWPARITY-DEPLOY.md`**.
+
+Short path from a dev PC:
+
+1. **`Build-Upload-MyBudgetDockerImages.ps1`** — build `mybudget-api:local` / `mybudget-ui:local`, save a tar, **scp** to the Docker host; optional **`-RemoteDockerLoad`** (SSH **`docker load`**) and **`-PortainerEndpointId`** to chain the Portainer deploy.
+2. **`deploy/portainer/Deploy-PortainerMyBudgetStack.ps1`** — create or update the app stack via the Portainer HTTP API (compose + `deploy/portainer/.env`).
+3. Keycloak stack: **`deploy/keycloak/docker-compose.yml`** and **`deploy/portainer/Deploy-PortainerKeycloakStack.ps1`** when you want the same API-driven deploy.
 
 ## Database
 
 - Provider: **PostgreSQL only** (Npgsql).
 - Naming: **snake_case** table and column names via `EFCore.NamingConventions`.
 - Configure the connection string as **`ConnectionStrings:Database`** (see `appsettings*.json`). Override in production with `ConnectionStrings__Database`.
-- On startup the API runs **`Database.Migrate()`** against that database.
+- On startup the API applies **EF Core migrations only** (`Database.Migrate()` via `DatabaseStartup`), which creates or updates tables.
+- After authentication, **`IUserWorkspaceBootstrapper`** runs (via a global MVC action filter, with a short per-user memory cache) to create the signed-in user row, default categories and accounts, and the primary plus sample baselines — this is separate from migrations and does not run at startup without a user context.
 
 ## Docker DB
 

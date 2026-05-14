@@ -3,7 +3,7 @@ import { Component, DestroyRef, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js';
-import { forkJoin } from 'rxjs';
+import { forkJoin, Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
@@ -29,6 +29,18 @@ export class DashboardPageComponent {
   readonly chartsLoadFailed = signal(false);
   compareBaselineId = '';
   comparisonRows: BaselineComparisonPoint[] = [];
+
+  comparisonYearTotals(): { base: number; compare: number; delta: number } {
+    let base = 0;
+    let compare = 0;
+    let delta = 0;
+    for (const r of this.comparisonRows) {
+      base += r.basePlanned;
+      compare += r.comparePlanned;
+      delta += r.delta;
+    }
+    return { base, compare, delta };
+  }
 
   cashflowNoIncome = false;
 
@@ -78,10 +90,10 @@ export class DashboardPageComponent {
   };
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
+      this.i18n.language();
       const baselineId = this.state.selectedBaselineId();
       const year = this.state.selectedYear();
-      this.i18n.language();
       if (!baselineId) {
         this.loading.set(false);
         this.chartDataReady.set(false);
@@ -89,9 +101,11 @@ export class DashboardPageComponent {
         return;
       }
 
-      this.loadCharts(baselineId, year);
       this.comparisonRows = [];
       this.compareBaselineId = '';
+
+      const sub = this.subscribeChartsLoad(baselineId, year);
+      onCleanup(() => sub.unsubscribe());
     });
   }
 
@@ -120,52 +134,51 @@ export class DashboardPageComponent {
     return series.categoryId == null ? this.t('dashboard.cashflowOther') : this.i18n.translateCategoryName(series.category);
   }
 
-  private loadCharts(baselineId: string, year: number): void {
+  /** Returns a subscription owned by the caller (e.g. effect `onCleanup`) so in-flight loads cannot overwrite a newer baseline/year. */
+  private subscribeChartsLoad(baselineId: string, year: number): Subscription {
     this.loading.set(true);
     this.chartsLoadFailed.set(false);
     this.chartDataReady.set(false);
 
-    forkJoin({
+    return forkJoin({
       cashflow: this.api.getMonthlyCashflow(baselineId, year),
       yearly: this.api.getYearlySummary(baselineId, year - 2, year),
       category: this.api.getCategorySummary(baselineId, year)
-    })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (response) => {
-          this.loading.set(false);
-          this.chartsLoadFailed.set(false);
+    }).subscribe({
+      next: (response) => {
+        this.loading.set(false);
+        this.chartsLoadFailed.set(false);
 
-          const months = response.cashflow.months;
-          this.cashflowNoIncome = months.every((m) => m.incomePlanned === 0 && m.incomeActual === 0);
+        const months = response.cashflow.months;
+        this.cashflowNoIncome = months.every((m) => m.incomePlanned === 0 && m.incomeActual === 0);
 
-          this.applyCashflowCharts(months);
-          this.applyExpenseStackChart(response.cashflow.expenseSeries);
+        this.applyCashflowCharts(months);
+        this.applyExpenseStackChart(response.cashflow.expenseSeries);
 
-          this.yearlyChartData = {
-            labels: response.yearly.map((item) => `${item.year}`),
-            datasets: [
-              { label: this.t('dashboard.planned'), data: response.yearly.map((item) => item.planned), backgroundColor: '#334155' },
-              { label: this.t('dashboard.actual'), data: response.yearly.map((item) => item.actual), backgroundColor: '#06b6d4' }
-            ]
-          };
+        this.yearlyChartData = {
+          labels: response.yearly.map((item) => `${item.year}`),
+          datasets: [
+            { label: this.t('dashboard.planned'), data: response.yearly.map((item) => item.planned), backgroundColor: '#334155' },
+            { label: this.t('dashboard.actual'), data: response.yearly.map((item) => item.actual), backgroundColor: '#06b6d4' }
+          ]
+        };
 
-          this.categoryChartData = {
-            labels: response.category.map((item) => this.i18n.translateCategoryName(item.category)),
-            datasets: [
-              { label: this.t('dashboard.planned'), data: response.category.map((item) => item.planned), backgroundColor: '#475569' },
-              { label: this.t('dashboard.actual'), data: response.category.map((item) => item.actual), backgroundColor: '#0e7490' }
-            ]
-          };
+        this.categoryChartData = {
+          labels: response.category.map((item) => this.i18n.translateCategoryName(item.category)),
+          datasets: [
+            { label: this.t('dashboard.planned'), data: response.category.map((item) => item.planned), backgroundColor: '#475569' },
+            { label: this.t('dashboard.actual'), data: response.category.map((item) => item.actual), backgroundColor: '#0e7490' }
+          ]
+        };
 
-          this.chartDataReady.set(true);
-        },
-        error: () => {
-          this.loading.set(false);
-          this.chartDataReady.set(false);
-          this.chartsLoadFailed.set(true);
-        }
-      });
+        this.chartDataReady.set(true);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.chartDataReady.set(false);
+        this.chartsLoadFailed.set(true);
+      }
+    });
   }
 
   private applyCashflowCharts(months: MonthlyCashflowPoint[]): void {
@@ -304,17 +317,11 @@ export class DashboardPageComponent {
   }
 
   private formatEur(value: number): string {
-    return this.i18n.formatAmount(value);
+    return this.i18n.formatSignedAmount(value);
   }
 
   private compactEurLabel(value: number): string {
-    if (Math.abs(value) >= 1_000_000) {
-      return `${(value / 1_000_000).toFixed(2)}M`;
-    }
-    if (Math.abs(value) >= 1000) {
-      return `${(value / 1000).toFixed(2)}k`;
-    }
-    return this.i18n.formatAmount(value);
+    return this.i18n.compactSignedAmountLabel(value);
   }
 
   t(key: string): string {
