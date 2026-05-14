@@ -10,14 +10,27 @@ namespace MyBudget.Api.Controllers;
 [Route("accounts")]
 public class AccountsController(
     BudgetDbContext dbContext,
-    IUserContext userContext) : ControllerBase
+    IUserContext userContext,
+    IBaselineAccessService baselineAccessService) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyCollection<AccountDto>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyCollection<AccountDto>>> GetAll(
+        [FromQuery] Guid baselineId,
+        CancellationToken cancellationToken)
     {
-        var userId = userContext.UserId;
+        var access = await baselineAccessService.GetAccessAsync(baselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+
+        if (!access.CanRead)
+        {
+            return Forbid();
+        }
+
         var accounts = await dbContext.Accounts
-            .Where(x => x.UserId == userId)
+            .Where(x => x.BaselineId == baselineId)
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.Name)
             .Select(x => new { x.Id, x.Name, x.TypeLabel, x.InitialBalance, x.SortOrder })
@@ -30,7 +43,10 @@ public class AccountsController(
 
         var ids = accounts.Select(x => x.Id).ToList();
         var deltas = await dbContext.ActualEntries
-            .Where(e => e.AccountId != null && ids.Contains(e.AccountId.Value))
+            .Where(e =>
+                e.AccountId != null
+                && ids.Contains(e.AccountId.Value)
+                && e.BudgetPosition.BaselineId == baselineId)
             .Select(e => new { Aid = e.AccountId!.Value, e.Amount, e.BudgetPosition.Category.IsIncome })
             .ToListAsync(cancellationToken);
 
@@ -58,14 +74,24 @@ public class AccountsController(
             return BadRequest("Name is required.");
         }
 
-        var userId = userContext.UserId;
-        if (await dbContext.Accounts.AnyAsync(x => x.UserId == userId && x.Name == name, cancellationToken))
+        var access = await baselineAccessService.GetAccessAsync(request.BaselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+
+        if (!access.CanManageBudget)
+        {
+            return Forbid();
+        }
+
+        if (await dbContext.Accounts.AnyAsync(x => x.BaselineId == request.BaselineId && x.Name == name, cancellationToken))
         {
             return Conflict("An account with this name already exists.");
         }
 
         var maxOrder = await dbContext.Accounts
-            .Where(x => x.UserId == userId)
+            .Where(x => x.BaselineId == request.BaselineId)
             .Select(x => (int?)x.SortOrder)
             .MaxAsync(cancellationToken) ?? 0;
 
@@ -74,7 +100,8 @@ public class AccountsController(
         var account = new Account
         {
             Id = Guid.NewGuid(),
-            UserId = userId,
+            UserId = access.OwnerUserId,
+            BaselineId = request.BaselineId,
             Name = name,
             TypeLabel = string.IsNullOrWhiteSpace(request.TypeLabel) ? null : request.TypeLabel.Trim(),
             InitialBalance = request.InitialBalance,
@@ -87,16 +114,28 @@ public class AccountsController(
 
         return CreatedAtAction(
             nameof(GetAll),
+            new { baselineId = request.BaselineId },
             new AccountDto(account.Id, account.Name, account.TypeLabel, account.InitialBalance, account.InitialBalance, account.SortOrder));
     }
 
     [HttpPatch("{id:guid}")]
     public async Task<ActionResult<AccountDto>> Update(Guid id, UpdateAccountRequest request, CancellationToken cancellationToken)
     {
-        var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userContext.UserId, cancellationToken);
+        var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (account is null)
         {
             return NotFound();
+        }
+
+        var access = await baselineAccessService.GetAccessAsync(account.BaselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+
+        if (!access.CanManageBudget)
+        {
+            return Forbid();
         }
 
         var name = request.Name.Trim();
@@ -106,7 +145,7 @@ public class AccountsController(
         }
 
         if (await dbContext.Accounts.AnyAsync(
-                x => x.UserId == userContext.UserId && x.Name == name && x.Id != id,
+                x => x.BaselineId == account.BaselineId && x.Name == name && x.Id != id,
                 cancellationToken))
         {
             return Conflict("An account with this name already exists.");
@@ -120,10 +159,10 @@ public class AccountsController(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         var incomeSum = await dbContext.ActualEntries
-            .Where(e => e.AccountId == id && e.BudgetPosition.Category.IsIncome)
+            .Where(e => e.AccountId == id && e.BudgetPosition.BaselineId == account.BaselineId && e.BudgetPosition.Category.IsIncome)
             .SumAsync(e => e.Amount, cancellationToken);
         var expenseSum = await dbContext.ActualEntries
-            .Where(e => e.AccountId == id && !e.BudgetPosition.Category.IsIncome)
+            .Where(e => e.AccountId == id && e.BudgetPosition.BaselineId == account.BaselineId && !e.BudgetPosition.Category.IsIncome)
             .SumAsync(e => e.Amount, cancellationToken);
         var flow = incomeSum - expenseSum;
 
@@ -133,10 +172,21 @@ public class AccountsController(
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userContext.UserId, cancellationToken);
+        var account = await dbContext.Accounts.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (account is null)
         {
             return NotFound();
+        }
+
+        var access = await baselineAccessService.GetAccessAsync(account.BaselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+
+        if (!access.CanManageBudget)
+        {
+            return Forbid();
         }
 
         if (await dbContext.ActualEntries.AnyAsync(x => x.AccountId == id, cancellationToken))

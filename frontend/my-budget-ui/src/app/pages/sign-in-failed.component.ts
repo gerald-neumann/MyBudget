@@ -1,13 +1,23 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { getKeycloakUiConfig } from '../core/api-base-url';
+import {
+  getKeycloakUiConfig,
+  MYBUDGET_HTTPS_REQUIRED_FLASH_KEY,
+  MYBUDGET_RUNTIME_CONFIG_FLASH_KEY,
+  type HttpsRequiredFlash
+} from '../core/api-base-url';
 import { authDebugLog } from '../core/auth-debug';
 import { KeycloakAuthService, MYBUDGET_KEYCLOAK_OAUTH_FLASH_KEY } from '../core/keycloak-auth.service';
 
 interface OAuthFlash {
   error?: string;
   error_description?: string;
+}
+
+interface RuntimeConfigFlash {
+  kind: 'keycloak_required';
+  apiBaseUrl: string;
 }
 
 /**
@@ -33,8 +43,56 @@ interface OAuthFlash {
   ],
   template: `
     <div class="mx-auto flex max-w-md flex-col gap-4 p-8 font-sans text-slate-800">
-      <h1 class="text-xl font-semibold">Sign-in did not complete</h1>
-      @if (flash; as f) {
+      <h1 class="text-xl font-semibold">
+        @if (httpsFlash) {
+          HTTPS required for sign-in
+        } @else if (configFlash) {
+          App configuration incomplete
+        } @else {
+          Sign-in did not complete
+        }
+      </h1>
+      @if (httpsFlash; as hf) {
+        <div
+          class="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-relaxed text-rose-950"
+          role="alert"
+        >
+          <p>
+            This app was opened at <code class="rounded bg-white/80 px-1 text-xs">{{ hf.pageOrigin }}</code>.
+            Keycloak sign-in uses <strong>PKCE</strong> (SHA-256), which needs the browser
+            <strong>Web Crypto API</strong> (<code class="rounded bg-white/80 px-1 text-xs">crypto.subtle</code>). That
+            API is only available on <strong>HTTPS</strong> for public hostnames (or on
+            <code class="rounded bg-white/80 px-1 text-xs">http://localhost</code> for development).
+          </p>
+          <p class="mt-2">
+            If your API is served on <strong>HTTPS</strong> while the UI is on <strong>HTTP</strong>, the browser also
+            treats API calls as a <strong>different origin</strong>, so CORS blocks them even when the server responds.
+          </p>
+          <p class="mt-2">
+            <strong>Fix (hosting):</strong> terminate TLS for the UI, redirect <code class="rounded bg-white/80 px-1 text-xs">http://</code> to
+            <code class="rounded bg-white/80 px-1 text-xs">https://</code>, and ensure
+            <code class="rounded bg-white/80 px-1 text-xs">FrontendOrigin</code> / Keycloak redirect URIs use the
+            HTTPS origin.
+          </p>
+        </div>
+      } @else if (configFlash; as cf) {
+        <div
+          class="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-relaxed text-rose-950"
+          role="alert"
+        >
+          <p>
+            This site is using a <strong>remote API</strong> (<code class="rounded bg-white/80 px-1 text-xs">{{ cf.apiBaseUrl }}</code>) but
+            <code class="rounded bg-white/80 px-1 text-xs">config.json</code> does not enable Keycloak. The API rejects anonymous calls
+            (<strong>401 Unauthorized</strong>), so the UI cannot load data.
+          </p>
+          <p class="mt-2">
+            On the server, mount production <code class="rounded bg-white/80 px-1 text-xs">ui-config.json</code> over
+            <code class="rounded bg-white/80 px-1 text-xs">/usr/share/nginx/html/config.json</code> with
+            <code class="rounded bg-white/80 px-1 text-xs">"keycloak": &#123; "enabled": true, … &#125;</code> (see
+            <code class="rounded bg-white/80 px-1 text-xs">deploy/portainer/ui-config.example.json</code>).
+          </p>
+        </div>
+      } @else if (flash; as f) {
         <div
           class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
           role="status"
@@ -126,13 +184,31 @@ interface OAuthFlash {
         </p>
       }
       <div class="flex flex-wrap gap-2">
-        <button
-          type="button"
-          class="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
-          (click)="retry()"
-        >
-          Try sign-in again
-        </button>
+        @if (httpsFlash) {
+          <button
+            type="button"
+            class="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
+            (click)="openHttpsSameHost()"
+          >
+            Open HTTPS version
+          </button>
+        } @else if (configFlash) {
+          <button
+            type="button"
+            class="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
+            (click)="reloadAfterConfigFix()"
+          >
+            Reload after fixing config
+          </button>
+        } @else {
+          <button
+            type="button"
+            class="rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
+            (click)="retry()"
+          >
+            Try sign-in again
+          </button>
+        }
         <a routerLink="/" class="rounded border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
           >Home</a
         >
@@ -146,6 +222,12 @@ export class SignInFailedComponent implements OnInit {
   /** One-shot message from Keycloak OAuth error redirect (see keycloak-auth.service). */
   protected flash: OAuthFlash | null = null;
 
+  /** Set by requireKeycloakAuthGuard when apiBaseUrl is remote but Keycloak is off in config.json. */
+  protected configFlash: RuntimeConfigFlash | null = null;
+
+  /** Set when the page is HTTP (non-loopback): PKCE / Web Crypto and cross-origin API calls need HTTPS. */
+  protected httpsFlash: HttpsRequiredFlash | null = null;
+
   /** Exposed as getters so strict template type-check always sees them on `SignInFailedComponent`. */
   get appOrigin(): string {
     return typeof window !== 'undefined' ? window.location.origin : '';
@@ -156,6 +238,34 @@ export class SignInFailedComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    try {
+      const httpsRaw = sessionStorage.getItem(MYBUDGET_HTTPS_REQUIRED_FLASH_KEY);
+      if (httpsRaw) {
+        sessionStorage.removeItem(MYBUDGET_HTTPS_REQUIRED_FLASH_KEY);
+        const parsed = JSON.parse(httpsRaw) as HttpsRequiredFlash;
+        if (parsed?.kind === 'https_required' && parsed.pageOrigin) {
+          this.httpsFlash = parsed;
+          return;
+        }
+      }
+    } catch {
+      sessionStorage.removeItem(MYBUDGET_HTTPS_REQUIRED_FLASH_KEY);
+    }
+
+    try {
+      const cfgRaw = sessionStorage.getItem(MYBUDGET_RUNTIME_CONFIG_FLASH_KEY);
+      if (cfgRaw) {
+        sessionStorage.removeItem(MYBUDGET_RUNTIME_CONFIG_FLASH_KEY);
+        const parsed = JSON.parse(cfgRaw) as RuntimeConfigFlash;
+        if (parsed?.kind === 'keycloak_required' && parsed.apiBaseUrl) {
+          this.configFlash = parsed;
+          return;
+        }
+      }
+    } catch {
+      sessionStorage.removeItem(MYBUDGET_RUNTIME_CONFIG_FLASH_KEY);
+    }
+
     try {
       const raw = sessionStorage.getItem(MYBUDGET_KEYCLOAK_OAUTH_FLASH_KEY);
       if (!raw) {
@@ -171,6 +281,25 @@ export class SignInFailedComponent implements OnInit {
   retry(): void {
     authDebugLog('sign-in-failed: user chose Try again → login()');
     void this.keycloakAuth.login();
+  }
+
+  reloadAfterConfigFix(): void {
+    authDebugLog('sign-in-failed: reload after ops fixed config.json');
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
+  }
+
+  /** Same URL with `https:` so PKCE and same-site API calls work after TLS is configured for the UI. */
+  openHttpsSameHost(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const href = window.location.href;
+    if (!/^http:\/\//i.test(href)) {
+      return;
+    }
+    window.location.replace(href.replace(/^http:/i, 'https:'));
   }
 
   /** Keycloak 25+ often maps “auth root session missing” to this pair — cookies/proxy/redirect mismatch, not SSO idle. */

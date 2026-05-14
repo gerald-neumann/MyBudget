@@ -3,10 +3,15 @@ import { Router } from '@angular/router';
 import Keycloak, { KeycloakLoginOptions } from 'keycloak-js';
 
 import { authDebugLog, isKeycloakAuthDebug } from './auth-debug';
-import { getKeycloakUiConfig } from './api-base-url';
+import { getKeycloakUiConfig, storeHttpsRequiredFlash } from './api-base-url';
 
 /** sessionStorage key: last OAuth error from Keycloak on `/sso` (read by sign-in-failed, then cleared). */
 export const MYBUDGET_KEYCLOAK_OAUTH_FLASH_KEY = 'mybudget_keycloak_oauth_flash';
+
+/** PKCE (S256) and keycloak-js need `SubtleCrypto`; browsers restrict it to secure contexts (HTTPS or loopback). */
+export function isWebCryptoSubtleAvailable(): boolean {
+  return typeof globalThis.crypto !== 'undefined' && !!globalThis.crypto.subtle;
+}
 
 function decodeOAuthErrorDescription(raw: string | null): string {
   if (!raw) {
@@ -125,11 +130,19 @@ function oidcAppRedirectUri(): string {
 export class KeycloakAuthService {
   private keycloak?: Keycloak;
 
+  /** One-time per browser session: full JWT is sensitive; only emitted when auth debug is on. */
+  private accessTokenDebugLogged = false;
+
   constructor(private readonly router: Router) {}
 
   /** True when ui-config / config.json opts in with keycloak.enabled and full client settings. */
   usesKeycloakAuth(): boolean {
     return getKeycloakUiConfig() !== null;
+  }
+
+  /** False on plain `http://` hostnames (prod); PKCE cannot run without `crypto.subtle`. */
+  isPkceBrowserSupported(): boolean {
+    return isWebCryptoSubtleAvailable();
   }
 
   isAuthenticated(): boolean {
@@ -140,6 +153,15 @@ export class KeycloakAuthService {
     const cfg = getKeycloakUiConfig();
     if (!cfg) {
       authDebugLog('initialize: Keycloak disabled or incomplete in config.json');
+      return;
+    }
+
+    if (!isWebCryptoSubtleAvailable()) {
+      authDebugLog(
+        'initialize: Web Crypto / SubtleCrypto unavailable — use HTTPS for this host (or localhost). Keycloak PKCE cannot run.'
+      );
+      storeHttpsRequiredFlash();
+      queueMicrotask(() => void this.router.navigateByUrl('/sign-in-failed', { replaceUrl: true }));
       return;
     }
 
@@ -225,10 +247,20 @@ export class KeycloakAuthService {
       );
       queueMicrotask(() => void this.router.navigateByUrl('/sign-in-failed', { replaceUrl: true }));
     }
+
+    if (kc.authenticated) {
+      this.tryLogAccessTokenOnce('after-kc-init');
+    }
   }
 
   /** Sends the browser to the Keycloak login screen (no-op if Keycloak is not configured). */
   async login(): Promise<void> {
+    if (getKeycloakUiConfig() && !isWebCryptoSubtleAvailable()) {
+      authDebugLog('login: blocked (no SubtleCrypto — HTTPS required on this host)');
+      storeHttpsRequiredFlash();
+      queueMicrotask(() => void this.router.navigateByUrl('/sign-in-failed', { replaceUrl: true }));
+      return;
+    }
     if (!this.keycloak) {
       authDebugLog('login: skipped (Keycloak instance missing — init failed?)');
       return;
@@ -256,6 +288,7 @@ export class KeycloakAuthService {
     }
     let token = kc.token;
     if (token) {
+      this.tryLogAccessTokenOnce('getTokenForRequest');
       return token;
     }
     try {
@@ -263,6 +296,9 @@ export class KeycloakAuthService {
     } catch {
       authDebugLog('getTokenForRequest: updateToken(0) failed (no refresh token?)');
       return undefined;
+    }
+    if (kc.token) {
+      this.tryLogAccessTokenOnce('getTokenForRequest-after-update');
     }
     return kc.token;
   }
@@ -277,9 +313,40 @@ export class KeycloakAuthService {
       authDebugLog('logout: skipped (no Keycloak session)');
       return;
     }
+    this.accessTokenDebugLogged = false;
     const redirectUri =
       typeof window !== 'undefined' ? `${window.location.origin}/` : 'http://localhost:4200/';
     authDebugLog('logout: Keycloak end-session', { redirectUri: safeAuthHref(redirectUri) });
     await kc.logout({ redirectUri });
+  }
+
+  /**
+   * When `keycloak.debug` in config.json or `ng serve`: logs parsed claims once, then the raw access JWT
+   * (paste at jwt.io — clear console afterward). Does nothing if debug is off.
+   */
+  private tryLogAccessTokenOnce(reason: string): void {
+    if (!isKeycloakAuthDebug() || this.accessTokenDebugLogged) {
+      return;
+    }
+    const kc = this.keycloak;
+    if (!kc?.token || !kc.tokenParsed) {
+      return;
+    }
+    this.accessTokenDebugLogged = true;
+    const p = kc.tokenParsed;
+    authDebugLog(`access token (${reason}) — parsed claims (validate vs API Auth:Authority / Auth:Audience)`, {
+      iss: p.iss,
+      sub: p.sub,
+      aud: p.aud,
+      azp: p.azp,
+      typ: p['typ'],
+      exp: p.exp,
+      iat: p.iat,
+      scope: typeof p['scope'] === 'string' ? p['scope'] : undefined
+    });
+    authDebugLog(
+      'access token — FULL JWT (sensitive; copy for jwt.io then disable keycloak.debug / clear console)',
+      kc.token
+    );
   }
 }

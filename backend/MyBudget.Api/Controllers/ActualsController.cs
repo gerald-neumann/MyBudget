@@ -146,11 +146,11 @@ public class ActualsController(
         }
 
         var accountOk = await dbContext.Accounts.AnyAsync(
-            x => x.Id == request.AccountId && x.UserId == userContext.UserId,
+            x => x.Id == request.AccountId && x.BaselineId == position.BaselineId,
             cancellationToken);
         if (!accountOk)
         {
-            return BadRequest("Account not found or not owned by the current user.");
+            return BadRequest("Account not found or does not belong to this household.");
         }
 
         var entry = new ActualEntry
@@ -206,11 +206,11 @@ public class ActualsController(
         }
 
         var accountOk = await dbContext.Accounts.AnyAsync(
-            x => x.Id == request.AccountId && x.UserId == userContext.UserId,
+            x => x.Id == request.AccountId && x.BaselineId == entry.BaselineId,
             cancellationToken);
         if (!accountOk)
         {
-            return BadRequest("Account not found or not owned by the current user.");
+            return BadRequest("Account not found or does not belong to this household.");
         }
 
         var positionOk = await dbContext.Positions.AnyAsync(

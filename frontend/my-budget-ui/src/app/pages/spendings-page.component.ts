@@ -140,7 +140,7 @@ export class SpendingsPageComponent {
       const sub = forkJoin({
         positions: this.api.getPositions(baselineId, year),
         categories: this.api.getCategoriesForBaseline(baselineId),
-        accounts: this.api.getAccounts()
+        accounts: this.api.getAccounts(baselineId)
       }).subscribe({
         next: (response) => {
           this.loading.set(false);

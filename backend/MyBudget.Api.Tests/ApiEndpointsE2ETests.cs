@@ -88,7 +88,7 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
         using var categories = await Http.GetAsync("/categories");
         categories.EnsureSuccessStatusCode();
 
-        using var accounts = await Http.GetAsync("/accounts");
+        using var accounts = await Http.GetAsync($"/accounts?baselineId={sample.Id}");
         accounts.EnsureSuccessStatusCode();
         var accountList = await accounts.Content.ReadFromJsonAsync<List<AccountJson>>(JsonOpts);
         Assert.NotNull(accountList);
@@ -179,7 +179,7 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
 
         using var createAcct = await Http.PostAsJsonAsync(
             "/accounts",
-            new CreateAccountRequest("E2E account", null, 0m, 999));
+            new CreateAccountRequest(primary.Id, "E2E account", null, 0m, 999));
         createAcct.EnsureSuccessStatusCode();
         var newAcct = await createAcct.Content.ReadFromJsonAsync<AccountJson>(JsonOpts);
         Assert.NotNull(newAcct);

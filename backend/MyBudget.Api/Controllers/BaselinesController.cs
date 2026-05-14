@@ -234,6 +234,11 @@ public class BaselinesController(
             successor.IsPrimaryBudget = true;
         }
 
+        await dbContext.ActualEntries
+            .Where(e => e.BudgetPosition.BaselineId == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.AccountId, (Guid?)null), cancellationToken);
+        await dbContext.Accounts.Where(a => a.BaselineId == id).ExecuteDeleteAsync(cancellationToken);
+
         dbContext.Baselines.Remove(baseline);
         await dbContext.SaveChangesAsync(cancellationToken);
 

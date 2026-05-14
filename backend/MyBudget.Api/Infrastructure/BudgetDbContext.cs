@@ -38,8 +38,10 @@ public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbCont
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(160);
             entity.Property(x => x.TypeLabel).HasMaxLength(80);
-            entity.HasIndex(x => new { x.UserId, x.Name }).IsUnique();
+            entity.HasIndex(x => x.BaselineId);
+            entity.HasIndex(x => new { x.BaselineId, x.Name }).IsUnique();
             entity.HasOne(x => x.User).WithMany(x => x.Accounts).HasForeignKey(x => x.UserId);
+            entity.HasOne(x => x.Baseline).WithMany(x => x.Accounts).HasForeignKey(x => x.BaselineId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<BudgetBaseline>(entity =>

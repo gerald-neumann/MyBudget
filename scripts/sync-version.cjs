@@ -3,12 +3,20 @@ const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..');
 const versionPath = path.join(repoRoot, 'VERSION');
-const version = fs.readFileSync(versionPath, 'utf8').trim();
+const raw = fs.readFileSync(versionPath, 'utf8').trim();
+const semverMatch = raw.match(/^(\d+)\.(\d+)\.(\d+)$/);
 
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
+if (!semverMatch) {
   console.error('VERSION must be semver major.minor.patch (e.g. 1.0.0).');
   process.exit(1);
 }
+
+const major = semverMatch[1];
+const minor = semverMatch[2];
+const patch = Number.parseInt(semverMatch[3], 10);
+const version = `${major}.${minor}.${patch + 1}`;
+
+fs.writeFileSync(versionPath, `${version}\n`);
 
 const pkgPath = path.join(repoRoot, 'frontend', 'my-budget-ui', 'package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
@@ -22,4 +30,4 @@ fs.writeFileSync(
   `export const APP_VERSION = '${version}';\nexport const APP_BUILD_TIMESTAMP_UTC = '${buildTs}';\n`
 );
 
-console.log(`Synced app version to ${version} (UI build UTC ${buildTs})`);
+console.log(`Bumped patch → ${version}, synced package.json and app-version.ts (UI build UTC ${buildTs})`);

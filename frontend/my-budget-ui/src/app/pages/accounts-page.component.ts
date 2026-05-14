@@ -1,11 +1,12 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, effect, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { take } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BudgetApiService } from '../core/budget-api.service';
+import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
 import { Account } from '../core/budget.models';
 
@@ -17,6 +18,7 @@ import { Account } from '../core/budget.models';
 })
 export class AccountsPageComponent {
   private readonly api = inject(BudgetApiService);
+  readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly accountsScroll = viewChild<ElementRef<HTMLElement>>('accountsScroll');
@@ -47,7 +49,48 @@ export class AccountsPageComponent {
   private loadRequestId = 0;
 
   constructor() {
-    this.loadAccounts();
+    effect((onCleanup) => {
+      const baselineId = this.state.selectedBaselineId();
+      if (!baselineId) {
+        this.accounts = [];
+        this.loading.set(false);
+        this.cancelEdit();
+        this.newAccountRowActive.set(false);
+        return;
+      }
+
+      this.cancelEdit();
+      this.newAccountRowActive.set(false);
+
+      const id = ++this.loadRequestId;
+      this.loading.set(true);
+      const sub = this.api
+        .getAccounts(baselineId)
+        .pipe(take(1))
+        .subscribe({
+          next: (rows) => {
+            if (id !== this.loadRequestId) {
+              return;
+            }
+            this.accounts = rows;
+            this.loading.set(false);
+          },
+          error: () => {
+            if (id !== this.loadRequestId) {
+              return;
+            }
+            this.loading.set(false);
+            this.setMessage('accounts.loadFailed', 'error');
+          }
+        });
+
+      onCleanup(() => sub.unsubscribe());
+    });
+  }
+
+  canManageAccounts(): boolean {
+    const access = this.state.selectedBaseline()?.myAccess;
+    return access === 'Editor' || access === 'Owner';
   }
 
   t(key: string): string {
@@ -125,6 +168,9 @@ export class AccountsPageComponent {
   }
 
   openNewAccountRow(): void {
+    if (!this.state.selectedBaselineId() || !this.canManageAccounts()) {
+      return;
+    }
     this.cancelEdit();
     this.newAccount = { name: '', typeLabel: '', initialBalance: 0 };
     this.newInitialEdit = null;
@@ -184,13 +230,15 @@ export class AccountsPageComponent {
   private submitNewAccount(): void {
     this.flushNewInitialDraft();
     const name = this.newAccount.name.trim();
-    if (!name || this.savingNewAccount()) {
+    const baselineId = this.state.selectedBaselineId();
+    if (!name || this.savingNewAccount() || !baselineId) {
       return;
     }
     const initial = this.effectiveNewInitial();
     this.savingNewAccount.set(true);
     this.api
       .createAccount({
+        baselineId,
         name,
         typeLabel: this.newAccount.typeLabel.trim() || null,
         initialBalance: initial,
@@ -226,10 +274,15 @@ export class AccountsPageComponent {
   }
 
   loadAccounts(): void {
+    const baselineId = this.state.selectedBaselineId();
+    if (!baselineId) {
+      this.accounts = [];
+      return;
+    }
     const id = ++this.loadRequestId;
     this.loading.set(true);
     this.api
-      .getAccounts()
+      .getAccounts(baselineId)
       .pipe(take(1))
       .subscribe({
         next: (rows) => {
@@ -250,6 +303,9 @@ export class AccountsPageComponent {
   }
 
   startEdit(row: Account): void {
+    if (!this.canManageAccounts()) {
+      return;
+    }
     if (this.savingNewAccount()) {
       return;
     }
@@ -304,6 +360,9 @@ export class AccountsPageComponent {
   }
 
   deleteAccount(row: Account): void {
+    if (!this.canManageAccounts()) {
+      return;
+    }
     if (!confirm(this.t('accounts.confirmDelete'))) {
       return;
     }

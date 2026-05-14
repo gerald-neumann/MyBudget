@@ -81,3 +81,42 @@ export function bootstrapApiBaseUrl(): Promise<void> {
 export function getResolvedApiBaseUrl(): string {
   return resolvedApiBaseUrl;
 }
+
+/** True when the configured API is not on loopback — deployed APIs require JWT; Keycloak must be enabled in config.json. */
+export function isResolvedApiBaseRemoteHost(): boolean {
+  try {
+    const u = new URL(getResolvedApiBaseUrl());
+    const h = u.hostname.toLowerCase();
+    return h !== 'localhost' && h !== '127.0.0.1' && h !== '::1';
+  } catch {
+    return false;
+  }
+}
+
+/** SessionStorage: set by the auth guard when the SPA points at a remote API but Keycloak is not enabled in config.json. */
+export const MYBUDGET_RUNTIME_CONFIG_FLASH_KEY = 'mybudget_runtime_config_flash';
+
+/** SessionStorage: Keycloak PKCE needs `crypto.subtle` — only available on HTTPS (non-loopback) or localhost. */
+export const MYBUDGET_HTTPS_REQUIRED_FLASH_KEY = 'mybudget_https_required_flash';
+
+export interface HttpsRequiredFlash {
+  kind: 'https_required';
+  /** `window.location.origin` when the flash was written (typically `http://…`). */
+  pageOrigin: string;
+}
+
+/** Keycloak PKCE needs `crypto.subtle` (HTTPS or loopback). Call from guard / Keycloak init before `login()`. */
+export function storeHttpsRequiredFlash(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const payload: HttpsRequiredFlash = {
+    kind: 'https_required',
+    pageOrigin: window.location.origin
+  };
+  try {
+    sessionStorage.setItem(MYBUDGET_HTTPS_REQUIRED_FLASH_KEY, JSON.stringify(payload));
+  } catch {
+    /* quota / private mode */
+  }
+}

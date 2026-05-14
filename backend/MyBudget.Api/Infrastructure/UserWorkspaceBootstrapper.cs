@@ -167,30 +167,6 @@ public class UserWorkspaceBootstrapper(
 
         await EnsureIncomeCategoryAsync(userId, cancellationToken);
 
-        if (!await dbContext.Accounts.AnyAsync(x => x.UserId == userId, cancellationToken))
-        {
-            var now = DateTimeOffset.UtcNow;
-            var sort = 1;
-            foreach (var name in StandardDemoAccountNames)
-            {
-                dbContext.Accounts.Add(
-                    new Account
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = userId,
-                        Name = name,
-                        TypeLabel = null,
-                        InitialBalance = 0,
-                        SortOrder = sort++,
-                        CreatedAt = now
-                    });
-            }
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-
-        await EnsureStandardAccountsAsync(userId, cancellationToken);
-
         if (!await dbContext.Baselines.AnyAsync(x => x.UserId == userId, cancellationToken))
         {
             var exampleId = Guid.NewGuid();
@@ -219,6 +195,7 @@ public class UserWorkspaceBootstrapper(
                 });
             await dbContext.SaveChangesAsync(cancellationToken);
             await SeedSampleDemoPositionsAsync(exampleId, userId, cancellationToken);
+            await EnsureSampleStandardAccountsAsync(exampleId, userId, cancellationToken);
             await FinalizeSampleBaselineContentAsync(exampleId, userId, cancellationToken);
         }
 
@@ -286,6 +263,7 @@ public class UserWorkspaceBootstrapper(
         dbContext.Baselines.Add(demo);
         await dbContext.SaveChangesAsync(cancellationToken);
         await SeedSampleDemoPositionsAsync(demo.Id, userId, cancellationToken);
+        await EnsureSampleStandardAccountsAsync(demo.Id, userId, cancellationToken);
         await FinalizeSampleBaselineContentAsync(demo.Id, userId, cancellationToken);
     }
 
@@ -308,7 +286,7 @@ public class UserWorkspaceBootstrapper(
         }
 
         var accounts = await dbContext.Accounts
-            .Where(a => a.UserId == userId)
+            .Where(a => a.BaselineId == baselineId)
             .OrderBy(a => a.SortOrder)
             .ToListAsync(cancellationToken);
         if (accounts.Count == 0)
@@ -425,16 +403,25 @@ public class UserWorkspaceBootstrapper(
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task EnsureStandardAccountsAsync(Guid userId, CancellationToken cancellationToken)
+    /// <summary>Demo Konten for the sample household only; personal baselines start with no accounts.</summary>
+    private async Task EnsureSampleStandardAccountsAsync(Guid sampleBaselineId, Guid ownerUserId, CancellationToken cancellationToken)
     {
+        var ok = await dbContext.Baselines.AnyAsync(
+            b => b.Id == sampleBaselineId && b.UserId == ownerUserId && b.IsSampleDemo,
+            cancellationToken);
+        if (!ok)
+        {
+            return;
+        }
+
         var existingNames = await dbContext.Accounts
-            .Where(a => a.UserId == userId)
+            .Where(a => a.BaselineId == sampleBaselineId)
             .Select(a => a.Name)
             .ToListAsync(cancellationToken);
 
         var have = new HashSet<string>(existingNames, StringComparer.Ordinal);
         var maxOrder = await dbContext.Accounts
-            .Where(a => a.UserId == userId)
+            .Where(a => a.BaselineId == sampleBaselineId)
             .Select(a => (int?)a.SortOrder)
             .MaxAsync(cancellationToken) ?? 0;
 
@@ -452,7 +439,8 @@ public class UserWorkspaceBootstrapper(
                 new Account
                 {
                     Id = Guid.NewGuid(),
-                    UserId = userId,
+                    UserId = ownerUserId,
+                    BaselineId = sampleBaselineId,
                     Name = name,
                     TypeLabel = null,
                     InitialBalance = 0,
@@ -652,6 +640,7 @@ public class UserWorkspaceBootstrapper(
 
         foreach (var baselineId in sampleIds)
         {
+            await EnsureSampleStandardAccountsAsync(baselineId, userId, cancellationToken);
             await SyncSampleBaselinePositionsAndPlansAsync(baselineId, userId, cancellationToken);
             await PatchSampleDemoSalaryAndRentActualsAsync(baselineId, cancellationToken);
             await BackfillExtendedSampleActualsAsync(baselineId, userId, cancellationToken);
@@ -813,7 +802,7 @@ public class UserWorkspaceBootstrapper(
         }
 
         var accounts = await dbContext.Accounts
-            .Where(a => a.UserId == userId)
+            .Where(a => a.BaselineId == baselineId)
             .OrderBy(a => a.SortOrder)
             .ToListAsync(cancellationToken);
         if (accounts.Count == 0)

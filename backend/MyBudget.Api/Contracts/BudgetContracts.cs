@@ -97,7 +97,7 @@ public record AccountDto(
     decimal CurrentBalance,
     int SortOrder);
 
-public record CreateAccountRequest(string Name, string? TypeLabel, decimal InitialBalance, int SortOrder);
+public record CreateAccountRequest(Guid BaselineId, string Name, string? TypeLabel, decimal InitialBalance, int SortOrder);
 public record UpdateAccountRequest(string Name, string? TypeLabel, decimal InitialBalance, int SortOrder);
 
 public record MonthlySummaryPoint(int Year, int Month, decimal Planned, decimal Actual);

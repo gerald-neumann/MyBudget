@@ -7,6 +7,7 @@ import { filter, forkJoin } from 'rxjs';
 import { BaselineInvitation, BaselineMember } from './core/budget.models';
 import { ApiBuildInfoDto, BudgetApiService } from './core/budget-api.service';
 import { BudgetStateService } from './core/budget-state.service';
+import { isResolvedApiBaseRemoteHost } from './core/api-base-url';
 import { I18nService } from './core/i18n.service';
 import { KeycloakAuthService } from './core/keycloak-auth.service';
 import { APP_BUILD_TIMESTAMP_UTC, APP_VERSION } from './app-version';
@@ -72,6 +73,9 @@ export class App {
 
   private primeShellDataWhenAllowed(): void {
     if (this.shellPrimed) {
+      return;
+    }
+    if (isResolvedApiBaseRemoteHost() && !this.keycloakAuth.usesKeycloakAuth()) {
       return;
     }
     if (this.keycloakAuth.usesKeycloakAuth() && !this.keycloakAuth.isAuthenticated()) {

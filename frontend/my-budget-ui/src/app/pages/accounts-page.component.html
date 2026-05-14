@@ -19,7 +19,7 @@
         <button
           type="button"
           class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded bg-violet-500 px-3 py-2 text-xs font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-sm"
-          [disabled]="newAccountRowActive() || savingNewAccount()"
+          [disabled]="!state.selectedBaselineId() || !canManageAccounts() || newAccountRowActive() || savingNewAccount()"
           (click)="openNewAccountRow()"
         >
           <span class="fa-sharp fa-solid fa-circle-plus text-sm leading-none sm:text-base" aria-hidden="true"></span>
@@ -142,7 +142,7 @@
                       <button
                         type="button"
                         class="rounded border border-violet-200 px-2 py-1 text-xs text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        [disabled]="savingNewAccount()"
+                        [disabled]="savingNewAccount() || !canManageAccounts()"
                         (click)="startEdit(row)"
                       >
                         {{ t('budget.barEdit') }}
@@ -150,7 +150,7 @@
                       <button
                         type="button"
                         class="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        [disabled]="savingNewAccount()"
+                        [disabled]="savingNewAccount() || !canManageAccounts()"
                         (click)="deleteAccount(row)"
                       >
                         {{ t('budget.delete') }}

@@ -52,11 +52,14 @@ export class BudgetApiService {
     return this.http.get<Category[]>(`${this.baseUrl}/categories`);
   }
 
-  getAccounts(): Observable<Account[]> {
-    return this.http.get<Account[]>(`${this.baseUrl}/accounts`);
+  getAccounts(baselineId: string): Observable<Account[]> {
+    return this.http.get<Account[]>(`${this.baseUrl}/accounts`, {
+      params: new HttpParams().set('baselineId', baselineId)
+    });
   }
 
   createAccount(payload: {
+    baselineId: string;
     name: string;
     typeLabel?: string | null;
     initialBalance: number;

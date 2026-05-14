@@ -1,7 +1,7 @@
 {
   "name": "mybudget-ui",
   "description": "MyBudget web UI",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "scripts": {
     "sync-version": "node ../../scripts/sync-version.cjs",
     "prestart": "npm run sync-version",

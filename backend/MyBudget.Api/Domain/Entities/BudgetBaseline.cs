@@ -18,6 +18,7 @@ public class BudgetBaseline
     public BudgetBaseline? ForkedFromBaseline { get; set; }
     public ICollection<BudgetBaseline> Forks { get; set; } = new List<BudgetBaseline>();
     public ICollection<BudgetPosition> Positions { get; set; } = new List<BudgetPosition>();
+    public ICollection<Account> Accounts { get; set; } = new List<Account>();
     public ICollection<BaselineMember> Members { get; set; } = new List<BaselineMember>();
     public ICollection<BaselineInvitation> Invitations { get; set; } = new List<BaselineInvitation>();
 }
