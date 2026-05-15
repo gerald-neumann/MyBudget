@@ -9,9 +9,9 @@ Stack layout: **PostgreSQL**, **API** (ASP.NET), and **Angular UI** (`mybudget-u
 
 ## Quick deployment flow (from your PC)
 
-1. **`Build-Upload-MyBudgetDockerImages.ps1`** (repo root): builds **`mybudget-api:local`** and **`mybudget-ui:local`**, **`docker save`** to one tar, **scp** to the Docker host (`-RemoteUserHost`, `-RemoteDir`, optional `-IdentityFile`).
-2. **Load images on the server:** add **`-RemoteDockerLoad`** so the script runs **`docker load -i …`** over SSH after upload; optional **`-RemoveRemoteTarAfterLoad`**.
-3. **Push the stack to Portainer** from your PC: **`pwsh ./deploy/portainer/Deploy-PortainerMyBudgetStack.ps1 -EndpointId N`** (token in **`deploy/portainer/.env`** or **`-AccessTokenFile`**). One-liner: pass **`-PortainerEndpointId N`** on the build script together with **`-RemoteDockerLoad`**.
+1. **`deploy-my-budget.ps1`** (repo root): by default runs the full pipeline — build, **`docker save`**, **scp**, remote **`docker load`**, then **`Deploy-PortainerMyBudgetStack.ps1`** (default endpoint **3**, **`-SkipCertificateCheck`**). Use **`-SkipRemoteDockerLoad`** / **`-SkipPortainerDeploy`** to trim steps; **`IdentityFile`** for SSH keys.
+2. Optional **`-RemoveRemoteTarAfterLoad`** after remote load.
+3. Portainer-only refresh: **`pwsh ./deploy/portainer/Deploy-PortainerMyBudgetStack.ps1 -EndpointId N -SkipCertificateCheck`** (token in **`deploy/portainer/.env`** or **`-AccessTokenFile`**).
 
 Further detail: **§4** (images and upload flags), **§7** (Portainer API), **§6** (Keycloak stack).
 
@@ -140,7 +140,7 @@ The UI container’s nginx proxies `/api/` to the **`api`** service on port **80
 
 Same as before: build or load **`MYBUDGET_API_IMAGE`** / **`MYBUDGET_UI_IMAGE`**. The UI image build requires **`FONTAWESOME_PRO_TOKEN`** (see `frontend/my-budget-ui/Dockerfile`).
 
-From a dev PC, **`Build-Upload-MyBudgetDockerImages.ps1`** can **build**, **save** one tar, **scp** to the Docker host (optional **`-IdentityFile`** for a private key), then **`ssh`** **`docker load`** (**`-RemoteDockerLoad`**) and optionally call **`Deploy-PortainerMyBudgetStack.ps1`** via **`-PortainerEndpointId`** (Portainer API still runs from your PC; the token lives in **`deploy/portainer/.env`**).
+From a dev PC, **`deploy-my-budget.ps1`** runs the full pipeline by default (**build**, **save**, **scp**, remote **`docker load`**, Portainer stack update). Use **`-IdentityFile`** for SSH keys, **`-SkipRemoteDockerLoad`** / **`-SkipPortainerDeploy`** to trim steps. Portainer-only: **`deploy/portainer/Deploy-PortainerMyBudgetStack.ps1`** (token in **`deploy/portainer/.env`**).
 
 ---
 

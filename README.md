@@ -60,7 +60,7 @@ End-to-end flow, DNS, TLS, Keycloak, and Portainer API examples: **`deploy/porta
 
 Short path from a dev PC:
 
-1. **`Build-Upload-MyBudgetDockerImages.ps1`** — build `mybudget-api:local` / `mybudget-ui:local`, save a tar, **scp** to the Docker host; optional **`-RemoteDockerLoad`** (SSH **`docker load`**) and **`-PortainerEndpointId`** to chain the Portainer deploy.
+1. **`deploy-my-budget.ps1`** (repo root) — full host pipeline by default: build, save tar, **scp**, SSH **`docker load`**, then Portainer stack update (endpoint **3**, **`-SkipCertificateCheck`**). Trim with **`-SkipRemoteDockerLoad`** / **`-SkipPortainerDeploy`**. Step timing averages live in **`.local/deploy-pipeline-timing.json`** (gitignored) and drive a console progress bar.
 2. **`deploy/portainer/Deploy-PortainerMyBudgetStack.ps1`** — create or update the app stack via the Portainer HTTP API (compose + `deploy/portainer/.env`).
 3. Keycloak stack: **`deploy/keycloak/docker-compose.yml`** and **`deploy/portainer/Deploy-PortainerKeycloakStack.ps1`** when you want the same API-driven deploy.
 

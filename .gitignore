@@ -46,6 +46,9 @@ dist/
 tmp/
 out-tsc/
 
+# Local deploy pipeline timing (deploy-my-budget.ps1)
+.local/
+
 # --- Portainer / local Docker junk ---
 # Typical bind-mount folder names for Portainer CE data (never commit)
 portainer_data/
