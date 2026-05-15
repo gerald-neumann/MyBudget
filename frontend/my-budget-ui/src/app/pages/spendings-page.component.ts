@@ -1,16 +1,28 @@
 import { CommonModule, DatePipe } from '@angular/common';
 import { Component, DestroyRef, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
-import { toSignal, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { forkJoin, Subject, Subscription } from 'rxjs';
-import { debounceTime, finalize, map } from 'rxjs/operators';
+import { debounceTime, finalize } from 'rxjs/operators';
 import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
 import { Account, ActualEntry, BudgetPosition, Category } from '../core/budget.models';
+import {
+  confirmDiscardUnsavedChanges,
+  shouldKeyboardCancelFromTarget,
+  shouldKeyboardConfirmFromTarget
+} from '../core/keyboard-confirm-cancel';
+import {
+  hasSpendingsDrillDownParams,
+  monthBookedRange,
+  parseSpendingsDrillDownParams,
+  SpendingsDrillDownParams
+} from '../core/spendings-drill-down';
 
-export type SpendingsDatePreset = 'currentMonth' | 'prevMonth' | 'currentYear' | 'lastYear' | 'all';
+export type SpendingsDatePreset = 'currentMonth' | 'prevMonth' | 'month' | 'currentYear' | 'lastYear' | 'all';
+export type LedgerFlowFilter = 'all' | 'income' | 'expense';
 
 /** One committed text or amount token in the ledger search field (matches API fragments). */
 type LedgerSearchChip = {
@@ -40,15 +52,11 @@ export class SpendingsPageComponent {
   private readonly api = inject(BudgetApiService);
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
-  private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
-
-  readonly ledgerMode = toSignal(
-    this.route.data.pipe(
-      map((d) => (d['ledgerMode'] as 'income' | 'expense' | undefined) ?? 'all')
-    ),
-    { initialValue: (this.route.snapshot.data['ledgerMode'] as 'income' | 'expense' | undefined) ?? 'all' }
-  );
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly drillDownQuery = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap
+  });
 
   private readonly spendingsScroll = viewChild<ElementRef<HTMLElement>>('spendingsScroll');
   private readonly ledgerSearchDraftInput = viewChild<ElementRef<HTMLInputElement>>('ledgerSearchDraft');
@@ -58,6 +66,7 @@ export class SpendingsPageComponent {
   accounts: Account[] = [];
   actualEntries: ActualEntry[] = [];
   actualsTotalCount = 0;
+  actualBookingYears: number[] = [];
   private actualsSkip = 0;
   readonly pageSize = 50;
 
@@ -70,6 +79,10 @@ export class SpendingsPageComponent {
   readonly newEntryRowActive = signal(false);
   readonly savingEdit = signal(false);
   readonly savingNewEntry = signal(false);
+  readonly deletingEntryId = signal<string | null>(null);
+  readonly uploadingAttachment = signal(false);
+
+  private newAttachmentFile: File | null = null;
 
   private lastShellKey: string | null = null;
   private actualsRequestSeq = 0;
@@ -77,12 +90,24 @@ export class SpendingsPageComponent {
 
   private readonly filterDebounce$ = new Subject<void>();
 
+  readonly ledgerMonthOptions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+
   datePreset: SpendingsDatePreset = 'currentMonth';
+  /** Set when drilling to a concrete calendar month (dashboard chart click). */
+  ledgerMonthFilter: number | null = null;
+  /** Income / expense slice for the ledger list (default: both). */
+  ledgerFlowFilter: LedgerFlowFilter = 'all';
+  /** null = all categories. */
+  ledgerCategoryFilter: string | null = null;
+  /** null = no calendar-year filter (Zeitraum still applies). */
+  readonly actualsYearFilter = signal<number | null>(this.state.selectedYear());
   /** Committed search bubbles (text and amount predicates). */
   ledgerSearchChips: LedgerSearchChip[] = [];
   /** Inline text before it becomes a chip. */
   searchDraft = '';
   private ledgerSearchChipSeq = 0;
+  private lastDrillDownKey = '';
+  private suppressFilterSideEffects = 0;
 
   message = '';
   messageType: 'success' | 'error' = 'success';
@@ -101,9 +126,6 @@ export class SpendingsPageComponent {
   editDraft: ActualEditDraft | null = null;
   private editAmountText: string | null = null;
   private editSnapshot = '';
-  private pendingRowAfterSave: ActualEntry | null = null;
-  /** After creating an entry and reloading the page, open edit mode for this existing row id. */
-  private pendingStartEditEntryId: string | null = null;
   private newActualSnapshot = '';
 
   constructor() {
@@ -119,8 +141,6 @@ export class SpendingsPageComponent {
 
     effect((onCleanup) => {
       const baselineId = this.state.selectedBaselineId();
-      const year = this.state.selectedYear();
-      const mode = this.ledgerMode();
       if (!baselineId) {
         this.loading.set(false);
         this.referenceDataReady.set(false);
@@ -129,6 +149,7 @@ export class SpendingsPageComponent {
         this.accounts = [];
         this.actualEntries = [];
         this.actualsTotalCount = 0;
+        this.actualBookingYears = [];
         this.actualsSkip = 0;
         this.clearRowEditState();
         this.newEntryRowActive.set(false);
@@ -138,27 +159,32 @@ export class SpendingsPageComponent {
       this.loading.set(true);
       this.referenceDataReady.set(false);
       const sub = forkJoin({
-        positions: this.api.getPositions(baselineId, year),
+        positions: this.api.getPositions(baselineId, new Date().getFullYear()),
         categories: this.api.getCategoriesForBaseline(baselineId),
-        accounts: this.api.getAccounts(baselineId)
+        accounts: this.api.getAccounts(baselineId),
+        bookingYears: this.api.getActualBookingYears(baselineId, this.actualsFilterApiOptions())
       }).subscribe({
         next: (response) => {
           this.loading.set(false);
           this.positions = response.positions;
           this.categories = response.categories;
           this.accounts = response.accounts;
+          this.actualBookingYears = response.bookingYears;
+          this.ensureActualsYearFilterValid();
           this.ensureDefaultAccountSelection();
           this.ensureSelectedPositionStillValid();
 
-          const shellKey = `${baselineId}|${mode}`;
+          const shellKey = baselineId;
           if (this.lastShellKey !== shellKey) {
             this.lastShellKey = shellKey;
-            this.datePreset = 'currentMonth';
-            this.ledgerSearchChips = [];
-            this.searchDraft = '';
+            this.lastDrillDownKey = '';
+            if (!hasSpendingsDrillDownParams(this.route.snapshot.queryParamMap)) {
+              this.resetLedgerFilters();
+            }
           }
 
           this.referenceDataReady.set(true);
+          this.applyDrillDownFromRoute();
           this.loadActualsFromStart();
         },
         error: () => {
@@ -178,11 +204,20 @@ export class SpendingsPageComponent {
       this.i18n.language();
       this.newActualAmountEdit = null;
     });
+
+    effect(() => {
+      this.drillDownQuery();
+      if (!this.referenceDataReady()) {
+        return;
+      }
+      if (this.applyDrillDownFromRoute()) {
+        this.loadActualsFromStart();
+      }
+    });
   }
 
   canManageSpendings(): boolean {
-    const access = this.state.selectedBaseline()?.myAccess;
-    return access === 'Editor' || access === 'Owner';
+    return this.state.canManageSelectedBaseline();
   }
 
   openNewEntryRow(): void {
@@ -205,24 +240,95 @@ export class SpendingsPageComponent {
   }
 
   closeNewEntryRow(): void {
+    this.newAttachmentFile = null;
     this.newEntryRowActive.set(false);
   }
 
-  tryCommitNewEntryOnBlur(): void {
+  confirmNewEntryRow(ev?: Event): void {
+    ev?.stopPropagation();
     if (!this.newEntryRowActive() || this.savingNewEntry()) {
       return;
     }
     this.commitPendingNewActualAmount();
-    if (!this.isNewActualDirty()) {
-      return;
-    }
     const amount = this.effectiveNewActualAmount();
     const err = this.validateNewActualForSubmit(amount);
     if (err) {
       this.setMessage(err, 'error');
       return;
     }
-    this.submitNewActualEntry(null);
+    this.submitNewActualEntry();
+  }
+
+  confirmEditRow(ev?: Event): void {
+    ev?.stopPropagation();
+    if (!this.editingEntryId || !this.editDraft || this.savingEdit()) {
+      return;
+    }
+    this.commitEditAmountFromInput();
+    if (!this.isEditingDraftDirty()) {
+      this.clearRowEditState();
+      return;
+    }
+    this.flushEditingSave();
+  }
+
+  addActualButtonLabel(): string {
+    if (this.ledgerFlowFilter === 'income') {
+      return this.t('budget.addActualIncome');
+    }
+    if (this.ledgerFlowFilter === 'expense') {
+      return this.t('budget.addActualExpense');
+    }
+    return this.t('budget.addActual');
+  }
+
+  newActualAmountPlaceholder(): string {
+    if (!this.newActual.budgetPositionId) {
+      return this.t('budget.amountPlaceholder');
+    }
+    return this.isIncomePositionId(this.newActual.budgetPositionId)
+      ? this.t('budget.amountHintIncome')
+      : this.t('budget.amountHintExpense');
+  }
+
+  editAmountPlaceholder(): string {
+    if (!this.editDraft?.budgetPositionId) {
+      return this.t('budget.amountPlaceholder');
+    }
+    return this.isIncomePositionId(this.editDraft.budgetPositionId)
+      ? this.t('budget.amountHintIncome')
+      : this.t('budget.amountHintExpense');
+  }
+
+  newActualAmountColorClass(): string {
+    if (!this.newActual.budgetPositionId) {
+      return 'text-violet-900';
+    }
+    const raw =
+      this.newActualAmountEdit !== null
+        ? (this.i18n.parseAmount(this.newActualAmountEdit) ?? this.newActual.amount)
+        : this.newActual.amount;
+    return this.i18n.signedAmountTextClass(this.normalizeAmountForPosition(this.newActual.budgetPositionId, raw));
+  }
+
+  onNewActualPositionChange(): void {
+    this.commitPendingNewActualAmount();
+    const amount = this.effectiveNewActualAmount();
+    if (amount !== 0) {
+      this.newActual.amount = this.normalizeAmountForPosition(this.newActual.budgetPositionId, amount);
+    }
+    this.newActualAmountEdit = null;
+  }
+
+  onEditPositionChange(): void {
+    if (!this.editDraft) {
+      return;
+    }
+    this.commitEditAmountFromInput();
+    if (this.editDraft.amount !== 0) {
+      this.editDraft.amount = this.normalizeAmountForPosition(this.editDraft.budgetPositionId, this.editDraft.amount);
+    }
+    this.editAmountText = null;
   }
 
   private firstSelectablePositionId(): string | null {
@@ -344,6 +450,237 @@ export class SpendingsPageComponent {
   }
 
   onDatePresetChange(): void {
+    if (this.suppressFilterSideEffects > 0) {
+      return;
+    }
+    if (this.datePreset === 'month') {
+      if (this.ledgerMonthFilter === null) {
+        this.ledgerMonthFilter = this.defaultLedgerMonth();
+      }
+    } else {
+      this.ledgerMonthFilter = null;
+    }
+    if (this.referenceDataReady()) {
+      this.loadActualsFromStart();
+    }
+  }
+
+  onLedgerMonthFilterChange(month: number | null): void {
+    if (this.suppressFilterSideEffects > 0) {
+      this.ledgerMonthFilter = month;
+      return;
+    }
+    this.ledgerMonthFilter = month;
+    if (this.referenceDataReady()) {
+      this.loadActualsFromStart();
+    }
+  }
+
+  onLedgerFlowFilterChange(): void {
+    if (this.suppressFilterSideEffects > 0) {
+      return;
+    }
+    this.ensureLedgerCategoryFilterValid();
+    if (this.newActual.budgetPositionId) {
+      const blocks = this.positionsByCategory();
+      const stillVisible = blocks.some((g) => g.positions.some((p) => p.id === this.newActual.budgetPositionId));
+      if (!stillVisible) {
+        const id = this.firstSelectablePositionId();
+        this.newActual.budgetPositionId = id ?? '';
+      }
+    }
+    this.ensureSelectedPositionStillValid();
+    this.refreshBookingYears();
+    if (this.referenceDataReady()) {
+      this.loadActualsFromStart();
+    }
+  }
+
+  hasActiveSpendingsFilters(): boolean {
+    return (
+      this.isSpendingsDateClusterActive() ||
+      this.isSpendingsFilterControlActive('flow') ||
+      this.isSpendingsFilterControlActive('category') ||
+      this.isSpendingsFilterControlActive('search')
+    );
+  }
+
+  isSpendingsDateClusterActive(): boolean {
+    return (
+      this.isSpendingsFilterControlActive('period') ||
+      this.isSpendingsFilterControlActive('year') ||
+      this.isSpendingsFilterControlActive('month')
+    );
+  }
+
+  isSpendingsFilterControlActive(kind: 'year' | 'month' | 'flow' | 'category' | 'period' | 'search'): boolean {
+    switch (kind) {
+      case 'year': {
+        const y = this.actualsYearFilter();
+        if (y === null) {
+          return true;
+        }
+        if (y !== this.state.selectedYear()) {
+          return true;
+        }
+        if (this.state.isSelectedYearOffCalendar()) {
+          return true;
+        }
+        if (this.datePreset === 'month') {
+          return true;
+        }
+        return this.datePreset === 'currentYear' || this.datePreset === 'lastYear';
+      }
+      case 'month':
+        return this.datePreset === 'month' && this.ledgerMonthFilter !== null;
+      case 'flow':
+        return this.ledgerFlowFilter !== 'all';
+      case 'category':
+        return this.ledgerCategoryFilter !== null;
+      case 'period':
+        return this.datePreset !== 'currentMonth' || this.ledgerMonthFilter !== null;
+      case 'search':
+        return this.ledgerSearchChips.length > 0;
+    }
+  }
+
+  spendingsFilterLabelClasses(active: boolean): string {
+    return active
+      ? 'inline-flex items-center gap-1 text-xs font-semibold text-amber-900'
+      : 'text-xs font-medium text-violet-800';
+  }
+
+  spendingsFilterControlClasses(active: boolean): string {
+    const base = 'min-h-10 w-full rounded border px-2 py-2 text-sm transition-colors sm:min-h-0 sm:py-1';
+    if (active) {
+      return `${base} border-amber-400 bg-amber-50 font-semibold text-amber-950 shadow-sm ring-2 ring-amber-200`;
+    }
+    return `${base} border-violet-200 bg-violet-50 text-violet-900`;
+  }
+
+  spendingsFilterSearchClasses(active: boolean): string {
+    const base =
+      'ledger-search-combo flex min-h-10 w-full cursor-text items-center gap-2 rounded border px-2 py-1 text-sm transition-colors sm:min-h-9';
+    if (active) {
+      return `${base} border-amber-400 bg-amber-50 font-semibold text-amber-950 shadow-sm ring-2 ring-amber-200`;
+    }
+    return `${base} border-violet-200 bg-violet-50 text-violet-900`;
+  }
+
+  clearSpendingsFilters(): void {
+    this.resetLedgerFilters();
+    this.actualsYearFilter.set(this.state.selectedYear());
+    this.lastDrillDownKey = '';
+    this.refreshBookingYears();
+    if (this.referenceDataReady()) {
+      this.loadActualsFromStart();
+    }
+  }
+
+  onLedgerCategoryFilterChange(): void {
+    this.lastDrillDownKey = '';
+    this.ensureLedgerCategoryFilterValid();
+    if (this.newActual.budgetPositionId) {
+      const blocks = this.positionsByCategory();
+      const stillVisible = blocks.some((g) => g.positions.some((p) => p.id === this.newActual.budgetPositionId));
+      if (!stillVisible) {
+        const id = this.firstSelectablePositionId();
+        this.newActual.budgetPositionId = id ?? '';
+      }
+    }
+    this.ensureSelectedPositionStillValid();
+    this.refreshBookingYears();
+    if (this.referenceDataReady()) {
+      this.loadActualsFromStart();
+    }
+  }
+
+  filterableCategories(): Category[] {
+    const mode = this.ledgerFlowFilter;
+    return [...this.categories]
+      .filter((c) => {
+        if (mode === 'income' && !c.isIncome) {
+          return false;
+        }
+        if (mode === 'expense' && c.isIncome) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const order = a.sortOrder - b.sortOrder;
+        if (order !== 0) {
+          return order;
+        }
+        return this.categoryName(a.id).localeCompare(this.categoryName(b.id), undefined, { sensitivity: 'base' });
+      });
+  }
+
+  actualsYearOptions(): number[] {
+    return this.actualBookingYears;
+  }
+
+  private ensureActualsYearFilterValid(): void {
+    const current = this.actualsYearFilter();
+    if (current === null || this.actualBookingYears.includes(current)) {
+      return;
+    }
+
+    const drillYear = parseSpendingsDrillDownParams(this.drillDownQuery())?.year;
+    if (drillYear === current) {
+      this.ensureYearOptionPresent(current);
+      return;
+    }
+
+    const fallback = this.actualBookingYears[0] ?? null;
+    this.actualsYearFilter.set(fallback);
+    if (fallback !== null) {
+      this.state.selectedYear.set(fallback);
+    }
+  }
+
+  private ensureYearOptionPresent(year: number): void {
+    if (!this.actualBookingYears.includes(year)) {
+      this.actualBookingYears = [...this.actualBookingYears, year].sort((a, b) => b - a);
+    }
+  }
+
+  private refreshBookingYears(): void {
+    const baselineId = this.state.selectedBaselineId();
+    if (!baselineId) {
+      return;
+    }
+    this.api
+      .getActualBookingYears(baselineId, this.actualsFilterApiOptions())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (years) => {
+          this.actualBookingYears = years;
+          this.ensureActualsYearFilterValid();
+        }
+      });
+  }
+
+  monthLabel(month: number): string {
+    return this.t(`monthShort.${month}`);
+  }
+
+  onActualsYearFilterChange(value: number | null): void {
+    if (this.suppressFilterSideEffects > 0) {
+      this.actualsYearFilter.set(value);
+      if (value !== null) {
+        this.state.selectedYear.set(value);
+      }
+      return;
+    }
+
+    this.actualsYearFilter.set(value);
+    if (value !== null) {
+      this.state.selectedYear.set(value);
+    }
+    if (this.datePreset === 'month' && this.ledgerMonthFilter === null) {
+      this.ledgerMonthFilter = this.defaultLedgerMonth();
+    }
     if (this.referenceDataReady()) {
       this.loadActualsFromStart();
     }
@@ -361,11 +698,13 @@ export class SpendingsPageComponent {
     if (this.newActualAmountEdit !== null) {
       return this.newActualAmountEdit;
     }
-    return this.i18n.formatAmount(this.newActual.amount);
+    return this.i18n.formatAmount(this.displayAmountForDraft(this.newActual.budgetPositionId, this.newActual.amount));
   }
 
   onNewActualAmountFocus(): void {
-    this.newActualAmountEdit = this.i18n.formatAmount(this.newActual.amount);
+    this.newActualAmountEdit = this.i18n.formatAmount(
+      this.displayAmountForDraft(this.newActual.budgetPositionId, this.effectiveNewActualAmount())
+    );
   }
 
   onNewActualAmountInput(raw: string): void {
@@ -379,10 +718,9 @@ export class SpendingsPageComponent {
       const parsed = this.i18n.parseAmount(this.newActualAmountEdit);
       this.newActualAmountEdit = null;
       if (parsed !== null) {
-        this.newActual.amount = parsed;
+        this.newActual.amount = this.normalizeAmountForPosition(this.newActual.budgetPositionId, parsed);
       }
     }
-    this.tryCommitNewEntryOnBlur();
   }
 
   private validateNewActualForSubmit(amount: number): string | null {
@@ -395,22 +733,34 @@ export class SpendingsPageComponent {
     if (!this.newActual.bookedOn?.trim()) {
       return 'msg.addActualNeedDate';
     }
-    return this.validateAmountSignForPosition(this.newActual.budgetPositionId, amount);
+    const normalized = this.normalizeAmountForPosition(this.newActual.budgetPositionId, amount);
+    return this.validateAmountSignForPosition(this.newActual.budgetPositionId, normalized);
   }
 
-  /** Non-zero amount with correct sign for the position's category (income positive, expense negative). */
+  /** Non-zero amount; sign is normalized from the position's category (income positive, expense negative). */
   private validateAmountSignForPosition(budgetPositionId: string, amount: number): string | null {
-    if (!Number.isFinite(amount) || amount === 0) {
+    const normalized = this.normalizeAmountForPosition(budgetPositionId, amount);
+    if (!Number.isFinite(normalized) || normalized === 0) {
       return 'msg.addActualNeedAmount';
     }
-    const income = this.isIncomePositionId(budgetPositionId);
-    if (income && amount <= 0) {
-      return 'msg.actualIncomeMustBePositive';
-    }
-    if (!income && amount >= 0) {
-      return 'msg.actualExpenseMustBeNegative';
-    }
     return null;
+  }
+
+  /** Income positive, expense negative; user may enter a positive magnitude only. */
+  private normalizeAmountForPosition(budgetPositionId: string, amount: number): number {
+    if (!Number.isFinite(amount) || amount === 0) {
+      return amount;
+    }
+    const magnitude = Math.abs(amount);
+    return this.isIncomePositionId(budgetPositionId) ? magnitude : -magnitude;
+  }
+
+  /** Amount shown while editing: always a positive magnitude when a position is selected. */
+  private displayAmountForDraft(budgetPositionId: string, amount: number): number {
+    if (!budgetPositionId) {
+      return amount;
+    }
+    return Math.abs(amount);
   }
 
   isIncomePositionId(budgetPositionId: string): boolean {
@@ -504,12 +854,50 @@ export class SpendingsPageComponent {
     if (this.savingEdit()) {
       return;
     }
-    this.clearRowEditState();
+    this.tryCancelRowEditing();
   }
 
   cancelNewEntryRow(ev?: Event): void {
     ev?.stopPropagation();
-    this.closeNewEntryRow();
+    this.tryCloseNewEntryRow();
+  }
+
+  /** Cancel edit row; confirm when the draft differs from the snapshot. */
+  tryCancelRowEditing(): boolean {
+    if (!this.editingEntryId || !this.editDraft) {
+      return true;
+    }
+    this.commitEditAmountFromInput();
+    if (!this.isEditingDraftDirty()) {
+      this.clearRowEditState();
+      return true;
+    }
+    if (confirmDiscardUnsavedChanges(this.t('budget.discardUnsavedEditConfirm'))) {
+      this.clearRowEditState();
+      return true;
+    }
+    return false;
+  }
+
+  /** Close new-entry row; confirm when the draft or attachment changed. */
+  tryCloseNewEntryRow(): boolean {
+    if (!this.newEntryRowActive()) {
+      return true;
+    }
+    this.commitPendingNewActualAmount();
+    if (!this.isNewEntryDiscardDirty()) {
+      this.closeNewEntryRow();
+      return true;
+    }
+    if (confirmDiscardUnsavedChanges(this.t('budget.discardUnsavedEditConfirm'))) {
+      this.closeNewEntryRow();
+      return true;
+    }
+    return false;
+  }
+
+  private isNewEntryDiscardDirty(): boolean {
+    return this.isNewActualDirty() || this.newAttachmentFile !== null;
   }
 
   private captureNewActualSnapshot(): void {
@@ -518,11 +906,15 @@ export class SpendingsPageComponent {
   }
 
   private serializeNewActualState(): string {
+    const amount = this.normalizeAmountForPosition(
+      this.newActual.budgetPositionId,
+      this.effectiveNewActualAmount()
+    );
     return JSON.stringify({
       budgetPositionId: this.newActual.budgetPositionId,
       accountId: this.newActual.accountId,
       bookedOn: this.newActual.bookedOn,
-      amount: this.effectiveNewActualAmount(),
+      amount,
       note: this.newActual.note.trim()
     });
   }
@@ -535,13 +927,15 @@ export class SpendingsPageComponent {
     this.newActual.amount = 0;
     this.newActualAmountEdit = null;
     this.newActual.note = '';
+    this.newAttachmentFile = null;
   }
 
-  /** @param startEditingExistingId If set, after reload opens inline edit for that row (used when switching from a new row to an existing row). */
-  private submitNewActualEntry(startEditingExistingId: string | null): void {
+  /** Persists a new actual entry from the inline create row. */
+  private submitNewActualEntry(): void {
     this.commitPendingNewActualAmount();
-    const amount = this.effectiveNewActualAmount();
-    const err = this.validateNewActualForSubmit(amount);
+    const rawAmount = this.effectiveNewActualAmount();
+    const amount = this.normalizeAmountForPosition(this.newActual.budgetPositionId, rawAmount);
+    const err = this.validateNewActualForSubmit(rawAmount);
     if (err) {
       this.setMessage(err, 'error');
       return;
@@ -551,7 +945,6 @@ export class SpendingsPageComponent {
     }
 
     this.savingNewEntry.set(true);
-    this.pendingStartEditEntryId = startEditingExistingId;
     this.api
       .createActualEntry({
         budgetPositionId: this.newActual.budgetPositionId,
@@ -562,15 +955,28 @@ export class SpendingsPageComponent {
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: (created) => {
+          const pendingFile = this.newAttachmentFile;
+          if (pendingFile) {
+            this.uploadAttachmentForEntry(created.id, pendingFile, () => {
+              this.savingNewEntry.set(false);
+              this.resetNewActualAfterSuccess();
+              this.closeNewEntryRow();
+              this.setMessage('msg.addActualSuccess', 'success');
+              this.refreshBookingYears();
+              this.loadActualsFromStart();
+            });
+            return;
+          }
           this.savingNewEntry.set(false);
           this.resetNewActualAfterSuccess();
+          this.closeNewEntryRow();
           this.setMessage('msg.addActualSuccess', 'success');
+          this.refreshBookingYears();
           this.loadActualsFromStart();
         },
         error: () => {
           this.savingNewEntry.set(false);
-          this.pendingStartEditEntryId = null;
           this.setMessage('msg.addActualFailed', 'error');
         }
       });
@@ -578,6 +984,11 @@ export class SpendingsPageComponent {
 
   hasMoreActuals(): boolean {
     return this.actualEntries.length < this.actualsTotalCount;
+  }
+
+  onEditEntryClick(entry: ActualEntry, event: Event): void {
+    event.stopPropagation();
+    this.onActualRowClick(entry);
   }
 
   onActualRowClick(entry: ActualEntry): void {
@@ -594,7 +1005,7 @@ export class SpendingsPageComponent {
           this.setMessage(err, 'error');
           return;
         }
-        this.submitNewActualEntry(entry.id);
+        this.submitNewActualEntry();
         return;
       }
       this.newEntryRowActive.set(false);
@@ -607,7 +1018,6 @@ export class SpendingsPageComponent {
     if (this.editingEntryId) {
       this.commitEditAmountFromInput();
       if (this.isEditingDraftDirty()) {
-        this.pendingRowAfterSave = entry;
         this.flushEditingSave();
         return;
       }
@@ -618,6 +1028,40 @@ export class SpendingsPageComponent {
     this.startEditing(entry);
   }
 
+  deleteActualEntry(entry: ActualEntry, event?: Event): void {
+    event?.stopPropagation();
+    if (!this.canManageSpendings() || this.savingEdit() || this.savingNewEntry()) {
+      return;
+    }
+    if (this.deletingEntryId() === entry.id) {
+      return;
+    }
+    if (!confirm(this.t('spendings.confirmDeleteEntry'))) {
+      return;
+    }
+
+    this.deletingEntryId.set(entry.id);
+    this.api
+      .deleteActualEntry(entry.id)
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.deletingEntryId.set(null))
+      )
+      .subscribe({
+        next: () => {
+          if (this.editingEntryId === entry.id) {
+            this.clearRowEditState();
+          }
+          this.setMessage('msg.deleteActualSuccess', 'success');
+          this.refreshBookingYears();
+          this.loadActualsFromStart();
+        },
+        error: () => {
+          this.setMessage('msg.deleteActualFailed', 'error');
+        }
+      });
+  }
+
   onEditCellBlur(): void {
     if (!this.editingEntryId || !this.editDraft || this.savingEdit()) {
       return;
@@ -626,7 +1070,6 @@ export class SpendingsPageComponent {
     if (!this.isEditingDraftDirty()) {
       return;
     }
-    this.pendingRowAfterSave = null;
     this.flushEditingSave();
   }
 
@@ -637,14 +1080,18 @@ export class SpendingsPageComponent {
     if (this.editAmountText !== null) {
       return this.editAmountText;
     }
-    return this.i18n.formatAmount(this.editDraft.amount);
+    return this.i18n.formatAmount(
+      this.displayAmountForDraft(this.editDraft.budgetPositionId, this.editDraft.amount)
+    );
   }
 
   onEditAmountFocus(): void {
     if (!this.editDraft) {
       return;
     }
-    this.editAmountText = this.i18n.formatAmount(this.editDraft.amount);
+    this.editAmountText = this.i18n.formatAmount(
+      this.displayAmountForDraft(this.editDraft.budgetPositionId, this.editDraft.amount)
+    );
   }
 
   onEditAmountInput(raw: string): void {
@@ -658,6 +1105,48 @@ export class SpendingsPageComponent {
     this.onEditCellBlur();
   }
 
+  /**
+   * Enter on the new-entry or edit rows confirms the row (green-check path).
+   */
+  onSpendingsTableRowEnterConfirm(event: Event, entry?: ActualEntry): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardConfirmFromTarget(event)) {
+      return;
+    }
+    if (entry) {
+      if (this.editingEntryId !== entry.id || !this.editDraft) {
+        return;
+      }
+    } else if (!this.newEntryRowActive()) {
+      return;
+    }
+    event.preventDefault();
+    if (entry) {
+      this.confirmEditRow();
+    } else {
+      this.confirmNewEntryRow();
+    }
+  }
+
+  /** Escape on the new-entry or edit rows cancels (xmark path). */
+  onSpendingsTableRowEscapeCancel(event: Event, entry?: ActualEntry): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event)) {
+      return;
+    }
+    if (entry) {
+      if (this.editingEntryId !== entry.id || !this.editDraft) {
+        return;
+      }
+    } else if (!this.newEntryRowActive()) {
+      return;
+    }
+    event.preventDefault();
+    if (entry) {
+      this.tryCancelRowEditing();
+    } else {
+      this.tryCloseNewEntryRow();
+    }
+  }
+
   private loadActualsFromStart(): void {
     const baselineId = this.state.selectedBaselineId();
     if (!baselineId || !this.referenceDataReady()) {
@@ -669,9 +1158,7 @@ export class SpendingsPageComponent {
     this.loadingMoreActuals.set(false);
     this.actualsSkip = 0;
 
-    const { bookedFrom, bookedTo } = this.periodBounds();
-    const flow = this.ledgerMode();
-    const flowKind: 'income' | 'expense' | undefined = flow === 'all' ? undefined : flow;
+    const { bookedFrom, bookedTo } = this.effectiveBookedBounds();
 
     this.actualsPageSub?.unsubscribe();
     this.actualsPageSub = this.api
@@ -682,7 +1169,7 @@ export class SpendingsPageComponent {
         bookedFrom,
         bookedTo,
         ...this.ledgerSearchApiParams(),
-        flowKind
+        ...this.actualsFilterApiOptions()
       })
       .pipe(
         finalize(() => {
@@ -707,23 +1194,12 @@ export class SpendingsPageComponent {
             }
             this.ensureDefaultAccountSelection();
           }
-          const pend = this.pendingStartEditEntryId;
-          this.pendingStartEditEntryId = null;
-          if (pend) {
-            const found = this.actualEntries.find((e) => e.id === pend);
-            if (found) {
-              this.startEditing(found);
-            }
-          } else if (this.newEntryRowActive()) {
-            this.captureNewActualSnapshot();
-          }
           this.queueTryFillScrollGap();
         },
         error: () => {
           if (seq !== this.actualsRequestSeq) {
             return;
           }
-          this.pendingStartEditEntryId = null;
           this.setMessage('msg.loadBudgetFailed', 'error');
         }
       });
@@ -744,9 +1220,7 @@ export class SpendingsPageComponent {
     const seq = ++this.actualsRequestSeq;
     this.loadingMoreActuals.set(true);
 
-    const { bookedFrom, bookedTo } = this.periodBounds();
-    const flow = this.ledgerMode();
-    const flowKind: 'income' | 'expense' | undefined = flow === 'all' ? undefined : flow;
+    const { bookedFrom, bookedTo } = this.effectiveBookedBounds();
 
     this.api
       .getActualEntriesPage({
@@ -756,7 +1230,7 @@ export class SpendingsPageComponent {
         bookedFrom,
         bookedTo,
         ...this.ledgerSearchApiParams(),
-        flowKind
+        ...this.actualsFilterApiOptions()
       })
       .pipe(
         finalize(() => {
@@ -833,10 +1307,123 @@ export class SpendingsPageComponent {
         const y = now.getFullYear() - 1;
         return { bookedFrom: `${y}-01-01`, bookedTo: `${y}-12-31` };
       }
+      case 'month': {
+        const year = this.actualsYearFilter();
+        const month = this.ledgerMonthFilter;
+        if (year != null && month != null) {
+          return monthBookedRange(year, month);
+        }
+        return { bookedFrom: null, bookedTo: null };
+      }
       case 'all':
       default:
         return { bookedFrom: null, bookedTo: null };
     }
+  }
+
+  private resetLedgerFilters(): void {
+    this.datePreset = 'currentMonth';
+    this.ledgerFlowFilter = 'all';
+    this.ledgerCategoryFilter = null;
+    this.ledgerMonthFilter = null;
+    this.ledgerSearchChips = [];
+    this.searchDraft = '';
+  }
+
+  private defaultLedgerMonth(): number {
+    const year = this.actualsYearFilter() ?? new Date().getFullYear();
+    const now = new Date();
+    if (year === now.getFullYear()) {
+      return now.getMonth() + 1;
+    }
+    return 1;
+  }
+
+  private runWithoutFilterSideEffects(fn: () => void): void {
+    this.suppressFilterSideEffects++;
+    try {
+      fn();
+    } finally {
+      queueMicrotask(() => {
+        this.suppressFilterSideEffects = Math.max(0, this.suppressFilterSideEffects - 1);
+      });
+    }
+  }
+
+  /** @returns true when filters changed from the current URL query. */
+  private applyDrillDownFromRoute(): boolean {
+    const paramMap = this.drillDownQuery();
+    const drill = parseSpendingsDrillDownParams(paramMap);
+    if (!drill) {
+      return false;
+    }
+
+    const key = paramMap.toString();
+    if (key === this.lastDrillDownKey) {
+      return false;
+    }
+    this.lastDrillDownKey = key;
+
+    this.runWithoutFilterSideEffects(() => {
+      this.resetLedgerFilters();
+
+      if (drill.flow) {
+        this.ledgerFlowFilter = drill.flow;
+      }
+
+      if (drill.year != null) {
+        this.actualsYearFilter.set(drill.year);
+        this.state.selectedYear.set(drill.year);
+        this.ensureYearOptionPresent(drill.year);
+      }
+
+      this.applyDateFilterForDrill(drill);
+
+      if (drill.categoryId) {
+        this.ledgerCategoryFilter = drill.categoryId;
+      }
+    });
+
+    this.ensureLedgerCategoryFilterValid();
+    this.refreshBookingYears();
+    return true;
+  }
+
+  private applyDateFilterForDrill(drill: SpendingsDrillDownParams): void {
+    if (drill.month != null && drill.year != null) {
+      this.ledgerMonthFilter = drill.month;
+      this.datePreset = 'month';
+      return;
+    }
+
+    this.ledgerMonthFilter = null;
+    if (drill.year != null) {
+      this.datePreset = 'all';
+    }
+  }
+
+  private effectiveBookedBounds(): { bookedFrom: string | null; bookedTo: string | null } {
+    const period = this.periodBounds();
+    const year = this.actualsYearFilter();
+    if (year === null) {
+      return period;
+    }
+
+    const yearFrom = `${year}-01-01`;
+    const yearTo = `${year}-12-31`;
+    if (period.bookedFrom === null && period.bookedTo === null) {
+      return { bookedFrom: yearFrom, bookedTo: yearTo };
+    }
+
+    let from = yearFrom;
+    let to = yearTo;
+    if (period.bookedFrom !== null && period.bookedFrom > from) {
+      from = period.bookedFrom;
+    }
+    if (period.bookedTo !== null && period.bookedTo < to) {
+      to = period.bookedTo;
+    }
+    return { bookedFrom: from, bookedTo: to };
   }
 
   private effectiveNewActualAmount(): number {
@@ -853,7 +1440,7 @@ export class SpendingsPageComponent {
     const parsed = this.i18n.parseAmount(this.newActualAmountEdit);
     this.newActualAmountEdit = null;
     if (parsed !== null) {
-      this.newActual.amount = parsed;
+      this.newActual.amount = this.normalizeAmountForPosition(this.newActual.budgetPositionId, parsed);
     }
   }
 
@@ -880,7 +1467,8 @@ export class SpendingsPageComponent {
     if (this.positions.length === 0) {
       return [];
     }
-    const mode = this.ledgerMode();
+    const mode = this.ledgerFlowFilter;
+    const categoryId = this.ledgerCategoryFilter;
     const byCat = new Map<string, BudgetPosition[]>();
     for (const p of this.positions) {
       const cat = this.categories.find((c) => c.id === p.categoryId);
@@ -888,6 +1476,9 @@ export class SpendingsPageComponent {
         continue;
       }
       if (mode === 'expense' && cat?.isIncome) {
+        continue;
+      }
+      if (categoryId && p.categoryId !== categoryId) {
         continue;
       }
       const list = byCat.get(p.categoryId);
@@ -935,14 +1526,36 @@ export class SpendingsPageComponent {
   }
 
   spendingsPageTitle(): string {
-    const mode = this.ledgerMode();
-    if (mode === 'income') {
+    if (this.ledgerFlowFilter === 'income') {
       return this.t('spendings.pageTitle.income');
     }
-    if (mode === 'expense') {
+    if (this.ledgerFlowFilter === 'expense') {
       return this.t('spendings.pageTitle.expense');
     }
     return this.t('spendings.pageTitle.all');
+  }
+
+  private effectiveFlowKind(): 'income' | 'expense' | undefined {
+    return this.ledgerFlowFilter === 'all' ? undefined : this.ledgerFlowFilter;
+  }
+
+  private actualsFilterApiOptions(): { flowKind?: 'income' | 'expense'; categoryId?: string } {
+    const flowKind = this.effectiveFlowKind();
+    const categoryId = this.ledgerCategoryFilter ?? undefined;
+    return {
+      ...(flowKind ? { flowKind } : {}),
+      ...(categoryId ? { categoryId } : {})
+    };
+  }
+
+  private ensureLedgerCategoryFilterValid(): void {
+    if (!this.ledgerCategoryFilter) {
+      return;
+    }
+    const stillVisible = this.filterableCategories().some((c) => c.id === this.ledgerCategoryFilter);
+    if (!stillVisible) {
+      this.ledgerCategoryFilter = null;
+    }
   }
 
   t(key: string, params?: Record<string, string | number>): string {
@@ -963,7 +1576,6 @@ export class SpendingsPageComponent {
     this.editDraft = null;
     this.editAmountText = null;
     this.editSnapshot = '';
-    this.pendingRowAfterSave = null;
   }
 
   private startEditing(entry: ActualEntry): void {
@@ -1015,7 +1627,7 @@ export class SpendingsPageComponent {
     if (this.editAmountText !== null) {
       const parsed = this.i18n.parseAmount(this.editAmountText);
       if (parsed !== null) {
-        d.amount = parsed;
+        d.amount = this.normalizeAmountForPosition(d.budgetPositionId, parsed);
       }
     }
     return d;
@@ -1047,7 +1659,7 @@ export class SpendingsPageComponent {
     const parsed = this.i18n.parseAmount(this.editAmountText);
     this.editAmountText = null;
     if (parsed !== null) {
-      this.editDraft.amount = parsed;
+      this.editDraft.amount = this.normalizeAmountForPosition(this.editDraft.budgetPositionId, parsed);
     }
   }
 
@@ -1057,11 +1669,12 @@ export class SpendingsPageComponent {
     }
     this.commitEditAmountFromInput();
     if (!this.isEditingDraftDirty()) {
-      this.applyPendingRowSwitchAfterCleanSave();
+      this.clearRowEditState();
       return;
     }
 
     const draft = this.editDraftWithEffectiveAmount();
+    draft.amount = this.normalizeAmountForPosition(draft.budgetPositionId, draft.amount);
     const signErr = this.validateAmountSignForPosition(draft.budgetPositionId, draft.amount);
     if (signErr) {
       this.setMessage(signErr, 'error');
@@ -1078,19 +1691,10 @@ export class SpendingsPageComponent {
         next: (updated) => {
           this.applyEntryUpdate(updated);
           this.savingEdit.set(false);
-          const pending = this.pendingRowAfterSave;
-          this.pendingRowAfterSave = null;
-          if (pending && pending.id !== updated.id) {
-            this.startEditing(pending);
-          } else {
-            this.editDraft = this.entryToDraft(updated);
-            this.editAmountText = null;
-            this.captureEditSnapshot();
-          }
+          this.clearRowEditState();
         },
         error: () => {
           this.savingEdit.set(false);
-          this.pendingRowAfterSave = null;
           this.setMessage('msg.updateActualFailed', 'error');
         }
       });
@@ -1123,12 +1727,103 @@ export class SpendingsPageComponent {
     }
   }
 
-  /** If the user queued another row while the draft was already clean, switch now. */
-  private applyPendingRowSwitchAfterCleanSave(): void {
-    const pending = this.pendingRowAfterSave;
-    this.pendingRowAfterSave = null;
-    if (pending && this.editingEntryId && pending.id !== this.editingEntryId) {
-      this.startEditing(pending);
+  onNewAttachmentSelected(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    this.newAttachmentFile = file;
+  }
+
+  onEditAttachmentSelected(entry: ActualEntry, ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file || !this.editingEntryId || this.editingEntryId !== entry.id) {
+      return;
     }
+    this.uploadAttachmentForEntry(entry.id, file);
+  }
+
+  downloadAttachment(entry: ActualEntry, ev?: Event): void {
+    ev?.stopPropagation();
+    if (!entry.hasAttachment) {
+      return;
+    }
+    this.api
+      .downloadActualAttachment(entry.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = entry.attachmentFileName?.trim() || 'receipt';
+          anchor.click();
+          URL.revokeObjectURL(url);
+        },
+        error: () => this.setMessage('msg.attachmentDownloadFailed', 'error')
+      });
+  }
+
+  removeAttachment(entry: ActualEntry, ev?: Event): void {
+    ev?.stopPropagation();
+    if (!entry.hasAttachment || this.uploadingAttachment() || this.savingEdit()) {
+      return;
+    }
+    this.uploadingAttachment.set(true);
+    this.api
+      .deleteActualAttachment(entry.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.uploadingAttachment.set(false);
+          this.applyEntryUpdate(updated);
+          if (this.editingEntryId === updated.id) {
+            this.editDraft = this.entryToDraft(updated);
+            this.captureEditSnapshot();
+          }
+          this.setMessage('msg.attachmentRemoveSuccess', 'success');
+        },
+        error: () => {
+          this.uploadingAttachment.set(false);
+          this.setMessage('msg.attachmentRemoveFailed', 'error');
+        }
+      });
+  }
+
+  newAttachmentLabel(): string {
+    return this.newAttachmentFile?.name ?? this.t('budget.attachmentNone');
+  }
+
+  hasNewAttachmentFile(): boolean {
+    return this.newAttachmentFile != null;
+  }
+
+  private uploadAttachmentForEntry(entryId: string, file: File, onSuccess?: () => void): void {
+    this.uploadingAttachment.set(true);
+    this.api
+      .uploadActualAttachment(entryId, file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.uploadingAttachment.set(false);
+          this.applyEntryUpdate(updated);
+          if (this.editingEntryId === updated.id) {
+            this.editDraft = this.entryToDraft(updated);
+            this.captureEditSnapshot();
+          }
+          this.setMessage('msg.attachmentUploadSuccess', 'success');
+          onSuccess?.();
+        },
+        error: () => {
+          this.uploadingAttachment.set(false);
+          this.setMessage('msg.attachmentUploadFailed', 'error');
+          if (this.savingNewEntry()) {
+            this.savingNewEntry.set(false);
+            this.resetNewActualAfterSuccess();
+            this.loadActualsFromStart();
+          }
+        }
+      });
   }
 }

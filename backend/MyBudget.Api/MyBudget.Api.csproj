@@ -29,6 +29,7 @@
     <PackageReference Include="EFCore.NamingConventions" Version="8.0.3" />
     <!-- JwtBearer pulls OpenIdConnect 7.1.x; that line mishandles some OIDC metadata (e.g. mtls_endpoint_aliases before jwks_uri) so SigningKeys stay empty → IDX10500. Pin >=7.4 (github.com/dotnet/aspnetcore/issues/52330). -->
     <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="7.6.3" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
   </ItemGroup>

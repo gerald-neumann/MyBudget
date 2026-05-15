@@ -20,10 +20,12 @@ For **Einnahmen**, **Ausgaben**, and **Budget**-style data tables, prefer **inli
 ## Implementation sketch
 
 - Track an `editingId` (or draft object keyed by row id); toggle the row template between read and edit branches (`@if` / `*ngIf`), matching `spendings-page` / `accounts-page` patterns.
+- For editable table rows, treat the display row itself as an edit affordance: clicking a non-interactive cell/area of the row should enter inline edit (buttons/links/inputs inside the row keep their own behavior).
+- Keep the same column structure between read and edit states. If a column is calculated/non-editable, still render it in edit mode as read-only display (do not replace it with placeholders like `—`).
 - For wide grids, a **full-width detail row** under the data row (`colspan` across all columns) is fine if it keeps one concern per row and avoids a modal.
 
 ## Examples in this repo
 
 - `spendings-page.component.html` — row switches to inputs; save/cancel in-row.
-- `accounts-page.component.html` — inline edit with save/cancel.
-- `budget-page.component.html` — planned amounts stay as cell inputs; position meta (category, cadence, dates, template scope) uses an **expandable table row** under the selected line instead of an overlay.
+- `accounts-page.component.html` — inline edit with save/cancel; row click opens edit mode.
+- `budget-page.component.html` — planned amounts and one-off **names** as in-cell inputs; **position meta** (category, cadence, dates, planned scope, template reapply) in a **modal** opened from “Edit” or row click (`openEditPositionModal`). Same **Enter** / **OK–Cancel icon** pattern as sheets: see `row-confirm-actions` rule.

@@ -3,6 +3,7 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { provideCharts, withDefaultRegisterables } from 'ng2-charts';
 
+import { apiUnauthorizedRetryInterceptor } from './core/api-unauthorized-retry.interceptor';
 import { authInterceptor } from './core/auth.interceptor';
 import { BUDGET_API_BASE_URL, bootstrapApiBaseUrl, getResolvedApiBaseUrl } from './core/api-base-url';
 import { KeycloakAuthService } from './core/keycloak-auth.service';
@@ -23,7 +24,7 @@ export const appConfig: ApplicationConfig = {
       deps: [KeycloakAuthService]
     },
     { provide: BUDGET_API_BASE_URL, useFactory: getResolvedApiBaseUrl },
-    provideHttpClient(withInterceptors([authInterceptor])),
+    provideHttpClient(withInterceptors([apiUnauthorizedRetryInterceptor, authInterceptor])),
     provideRouter(routes),
     provideCharts(withDefaultRegisterables())
   ]

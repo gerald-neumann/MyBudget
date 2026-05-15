@@ -75,6 +75,8 @@ export interface ActualEntry {
   amount: number;
   note?: string | null;
   externalRef?: string | null;
+  hasAttachment: boolean;
+  attachmentFileName?: string | null;
 }
 
 export interface ActualEntriesPage {

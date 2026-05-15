@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using MyBudget.Api.Domain;
@@ -28,6 +29,9 @@ public class UserWorkspaceBootstrapper(
 {
     private const string WorkspaceBootstrapCacheKeyPrefix = "mybudget.workspace-bootstrap:";
 
+    /// <summary>Serializes bootstrap per user so parallel API calls (e.g. /me + /baselines) do not race on demo sync deletes.</summary>
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> WorkspaceBootstrapGates = new();
+
     private static string WorkspaceBootstrapCacheKey(Guid userId) =>
         $"{WorkspaceBootstrapCacheKeyPrefix}{userId:N}";
 
@@ -43,12 +47,35 @@ public class UserWorkspaceBootstrapper(
             return;
         }
 
-        await RunBootstrapPipelineAsync(cancellationToken);
+        var gate = WorkspaceBootstrapGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (memoryCache.TryGetValue(cacheKey, out _))
+            {
+                return;
+            }
 
-        memoryCache.Set(
-            cacheKey,
-            byte.MinValue,
-            new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) });
+            await RunBootstrapPipelineAsync(cancellationToken);
+
+            memoryCache.Set(
+                cacheKey,
+                byte.MinValue,
+                new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) });
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            dbContext.ChangeTracker.Clear();
+            await RunBootstrapPipelineAsync(cancellationToken);
+            memoryCache.Set(
+                cacheKey,
+                byte.MinValue,
+                new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) });
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     /// <summary>Personal empty workspace; stays the default (primary) for returning users.</summary>
@@ -716,11 +743,7 @@ public class UserWorkspaceBootstrapper(
 
                     if (stray || metaChanged)
                     {
-                        foreach (var pa in nonOverride)
-                        {
-                            dbContext.PlannedAmounts.Remove(pa);
-                        }
-
+                        await RemoveSamplePlannedAmountsAsync(existing, nonOverride, cancellationToken);
                         changed = true;
                     }
                 }
@@ -766,6 +789,35 @@ public class UserWorkspaceBootstrapper(
         for (var y = y0 - 2; y <= y0; y++)
         {
             await planningMaterializationService.MaterializeYearAsync(baselineId, y, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Deletes planned rows in the database without relying on tracked DELETE commands (avoids concurrency failures when rows are already gone).
+    /// </summary>
+    private async Task RemoveSamplePlannedAmountsAsync(
+        BudgetPosition position,
+        IReadOnlyList<PlannedAmount> plannedAmounts,
+        CancellationToken cancellationToken)
+    {
+        if (plannedAmounts.Count == 0)
+        {
+            return;
+        }
+
+        var ids = plannedAmounts.Select(pa => pa.Id).ToList();
+        await dbContext.PlannedAmounts
+            .Where(pa => ids.Contains(pa.Id))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        foreach (var pa in plannedAmounts)
+        {
+            position.PlannedAmounts.Remove(pa);
+            var entry = dbContext.Entry(pa);
+            if (entry.State != EntityState.Detached)
+            {
+                entry.State = EntityState.Detached;
+            }
         }
     }
 

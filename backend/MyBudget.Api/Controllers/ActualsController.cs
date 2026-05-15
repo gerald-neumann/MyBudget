@@ -1,8 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MyBudget.Api.Contracts;
 using MyBudget.Api.Domain.Entities;
 using MyBudget.Api.Infrastructure;
+using MyBudget.Api.Infrastructure.ActualAttachments;
 using MyBudget.Api;
 
 namespace MyBudget.Api.Controllers;
@@ -12,8 +16,12 @@ namespace MyBudget.Api.Controllers;
 public class ActualsController(
     BudgetDbContext dbContext,
     IUserContext userContext,
-    IBaselineAccessService baselineAccessService) : ControllerBase
+    IBaselineAccessService baselineAccessService,
+    IActualAttachmentBlobStore attachmentBlobStore,
+    IOptions<ActualAttachmentOptions> attachmentOptions) : ControllerBase
 {
+    private readonly ActualAttachmentOptions _attachmentOpts = attachmentOptions.Value;
+
     /// <summary>Paged actual entries with optional date range, text search (position, category, account, note), and amount predicates (&gt;, &lt;, etc.).</summary>
     [HttpGet]
     public async Task<ActionResult<ActualEntriesPageDto>> GetByBaseline(
@@ -25,6 +33,7 @@ public class ActualsController(
         [FromQuery] string[]? search = null,
         [FromQuery] string? amountFilter = null,
         [FromQuery] string? flowKind = null,
+        [FromQuery] Guid? categoryId = null,
         CancellationToken cancellationToken = default)
     {
         var access = await baselineAccessService.GetAccessAsync(baselineId, userContext.UserId, cancellationToken);
@@ -65,6 +74,11 @@ public class ActualsController(
             {
                 query = query.Where(x => !x.BudgetPosition.Category.IsIncome);
             }
+        }
+
+        if (categoryId is not null)
+        {
+            query = query.Where(x => x.BudgetPosition.CategoryId == categoryId);
         }
 
         if (bookedFrom is not null)
@@ -117,10 +131,59 @@ public class ActualsController(
                 x.BookedOn,
                 x.Amount,
                 x.Note,
-                x.ExternalRef))
+                x.ExternalRef,
+                x.AttachmentBlobKey != null,
+                x.AttachmentOriginalFileName))
             .ToListAsync(cancellationToken);
 
         return Ok(new ActualEntriesPageDto(entries, totalCount));
+    }
+
+    /// <summary>Calendar years that have at least one actual booking for this baseline (newest first).</summary>
+    [HttpGet("booking-years")]
+    public async Task<ActionResult<ActualBookingYearsDto>> GetBookingYears(
+        [FromQuery] Guid baselineId,
+        [FromQuery] string? flowKind = null,
+        [FromQuery] Guid? categoryId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var access = await baselineAccessService.GetAccessAsync(baselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+        if (!access.CanRead)
+        {
+            return Forbid();
+        }
+
+        IQueryable<ActualEntry> query = dbContext.ActualEntries
+            .Where(x => x.BudgetPosition.BaselineId == baselineId);
+
+        if (!string.IsNullOrWhiteSpace(flowKind))
+        {
+            if (string.Equals(flowKind, "income", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x => x.BudgetPosition.Category.IsIncome);
+            }
+            else if (string.Equals(flowKind, "expense", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(x => !x.BudgetPosition.Category.IsIncome);
+            }
+        }
+
+        if (categoryId is not null)
+        {
+            query = query.Where(x => x.BudgetPosition.CategoryId == categoryId);
+        }
+
+        var years = await query
+            .Select(x => x.BookedOn.Year)
+            .Distinct()
+            .OrderByDescending(y => y)
+            .ToListAsync(cancellationToken);
+
+        return Ok(new ActualBookingYearsDto(years));
     }
 
     [HttpPost]
@@ -172,15 +235,7 @@ public class ActualsController(
             .Select(x => x.Name)
             .FirstAsync(cancellationToken);
 
-        return Ok(new ActualEntryDto(
-            entry.Id,
-            entry.BudgetPositionId,
-            entry.AccountId,
-            accountName,
-            entry.BookedOn,
-            entry.Amount,
-            entry.Note,
-            entry.ExternalRef));
+        return Ok(ToDto(entry, accountName));
     }
 
     [HttpPatch("{id:guid}")]
@@ -234,15 +289,7 @@ public class ActualsController(
             .Select(x => x.Name)
             .FirstAsync(cancellationToken);
 
-        return Ok(new ActualEntryDto(
-            entry.Entry.Id,
-            entry.Entry.BudgetPositionId,
-            entry.Entry.AccountId,
-            accountName,
-            entry.Entry.BookedOn,
-            entry.Entry.Amount,
-            entry.Entry.Note,
-            entry.Entry.ExternalRef));
+        return Ok(ToDto(entry.Entry, accountName));
     }
 
     [HttpDelete("{id:guid}")]
@@ -267,8 +314,215 @@ public class ActualsController(
             return Forbid();
         }
 
+        if (!string.IsNullOrEmpty(entry.Entry.AttachmentBlobKey))
+        {
+            try
+            {
+                await attachmentBlobStore.DeleteAsync(entry.Entry.AttachmentBlobKey, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                // Best-effort cleanup; row removal should not be blocked by orphaned blob failures.
+                var logger = HttpContext.RequestServices.GetRequiredService<ILogger<ActualsController>>();
+                logger.LogWarning(ex, "Failed to delete attachment blob for actual entry {EntryId}", id);
+            }
+        }
+
         dbContext.ActualEntries.Remove(entry.Entry);
         await dbContext.SaveChangesAsync(cancellationToken);
         return NoContent();
+    }
+
+    /// <summary>Upload or replace a single receipt/invoice PDF or image (stored outside the primary database).</summary>
+    [HttpPost("{id:guid}/attachment")]
+    [RequestSizeLimit(22 * 1024 * 1024)]
+    public async Task<ActionResult<ActualEntryDto>> UploadAttachment(
+        Guid id,
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest("Choose a non-empty file.");
+        }
+
+        if (file.Length > _attachmentOpts.MaxBytes)
+        {
+            return BadRequest($"File exceeds maximum size of {_attachmentOpts.MaxBytes} bytes.");
+        }
+
+        var declaredType = file.ContentType?.Trim();
+        if (!ActualAttachmentContentRules.IsAllowedContentType(declaredType))
+        {
+            return BadRequest("Unsupported file type. Use PDF or a common image format (JPEG, PNG, WebP, GIF).");
+        }
+
+        var entry = await dbContext.ActualEntries
+            .Where(x => x.Id == id)
+            .Select(x => new { Entry = x, x.BudgetPosition.BaselineId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (entry is null)
+        {
+            return NotFound();
+        }
+
+        var access = await baselineAccessService.GetAccessAsync(entry.BaselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+        if (!access.CanManageBudget)
+        {
+            return Forbid();
+        }
+
+        var safeName = ActualAttachmentContentRules.SanitizeFileName(file.FileName);
+        var ext = ResolveStorageExtension(safeName, declaredType!);
+        var newKey = $"{id:D}/{Guid.NewGuid():N}{ext}";
+
+        if (!string.IsNullOrEmpty(entry.Entry.AttachmentBlobKey))
+        {
+            try
+            {
+                await attachmentBlobStore.DeleteAsync(entry.Entry.AttachmentBlobKey, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                var logger = HttpContext.RequestServices.GetRequiredService<ILogger<ActualsController>>();
+                logger.LogWarning(ex, "Failed to delete previous attachment blob for actual entry {EntryId}", id);
+            }
+        }
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await attachmentBlobStore.UploadAsync(newKey, stream, declaredType!, cancellationToken);
+        }
+
+        entry.Entry.AttachmentBlobKey = newKey;
+        entry.Entry.AttachmentOriginalFileName = safeName;
+        entry.Entry.AttachmentContentType = declaredType;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var accountName = await dbContext.Accounts
+            .Where(x => x.Id == entry.Entry.AccountId)
+            .Select(x => x.Name)
+            .FirstAsync(cancellationToken);
+
+        return Ok(ToDto(entry.Entry, accountName));
+    }
+
+    [HttpGet("{id:guid}/attachment")]
+    public async Task<IActionResult> DownloadAttachment(Guid id, CancellationToken cancellationToken)
+    {
+        var entry = await dbContext.ActualEntries
+            .Where(x => x.Id == id)
+            .Select(x => new { x.AttachmentBlobKey, x.AttachmentOriginalFileName, x.AttachmentContentType, x.BudgetPosition.BaselineId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (entry is null)
+        {
+            return NotFound();
+        }
+
+        var access = await baselineAccessService.GetAccessAsync(entry.BaselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+        if (!access.CanRead)
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrEmpty(entry.AttachmentBlobKey))
+        {
+            return NotFound();
+        }
+
+        var stream = await attachmentBlobStore.OpenReadAsync(entry.AttachmentBlobKey, cancellationToken);
+        var downloadName = ActualAttachmentContentRules.SanitizeFileName(entry.AttachmentOriginalFileName);
+        var contentType = string.IsNullOrWhiteSpace(entry.AttachmentContentType)
+            ? "application/octet-stream"
+            : entry.AttachmentContentType!;
+        return File(stream, contentType, downloadName);
+    }
+
+    [HttpDelete("{id:guid}/attachment")]
+    public async Task<ActionResult<ActualEntryDto>> DeleteAttachment(Guid id, CancellationToken cancellationToken)
+    {
+        var entry = await dbContext.ActualEntries
+            .Where(x => x.Id == id)
+            .Select(x => new { Entry = x, x.BudgetPosition.BaselineId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (entry is null)
+        {
+            return NotFound();
+        }
+
+        var access = await baselineAccessService.GetAccessAsync(entry.BaselineId, userContext.UserId, cancellationToken);
+        if (access is null)
+        {
+            return NotFound();
+        }
+        if (!access.CanManageBudget)
+        {
+            return Forbid();
+        }
+
+        if (!string.IsNullOrEmpty(entry.Entry.AttachmentBlobKey))
+        {
+            try
+            {
+                await attachmentBlobStore.DeleteAsync(entry.Entry.AttachmentBlobKey, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                var logger = HttpContext.RequestServices.GetRequiredService<ILogger<ActualsController>>();
+                logger.LogWarning(ex, "Failed to delete attachment blob for actual entry {EntryId}", id);
+            }
+        }
+
+        entry.Entry.AttachmentBlobKey = null;
+        entry.Entry.AttachmentOriginalFileName = null;
+        entry.Entry.AttachmentContentType = null;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var accountName = await dbContext.Accounts
+            .Where(x => x.Id == entry.Entry.AccountId)
+            .Select(x => x.Name)
+            .FirstAsync(cancellationToken);
+
+        return Ok(ToDto(entry.Entry, accountName));
+    }
+
+    private static ActualEntryDto ToDto(ActualEntry entry, string accountName) =>
+        new(
+            entry.Id,
+            entry.BudgetPositionId,
+            entry.AccountId,
+            accountName,
+            entry.BookedOn,
+            entry.Amount,
+            entry.Note,
+            entry.ExternalRef,
+            entry.AttachmentBlobKey is not null,
+            entry.AttachmentOriginalFileName);
+
+    private static string ResolveStorageExtension(string sanitizedFileName, string contentType)
+    {
+        var ext = Path.GetExtension(sanitizedFileName).ToLowerInvariant();
+        if (ext is ".pdf" or ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif")
+        {
+            return ext == ".jpeg" ? ".jpg" : ext;
+        }
+
+        return contentType switch
+        {
+            "application/pdf" => ".pdf",
+            "image/jpeg" => ".jpg",
+            "image/png" => ".png",
+            "image/webp" => ".webp",
+            "image/gif" => ".gif",
+            _ => ".bin"
+        };
     }
 }

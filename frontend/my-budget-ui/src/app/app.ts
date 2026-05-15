@@ -3,19 +3,28 @@ import { Component, DestroyRef, HostListener, inject, signal } from '@angular/co
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { filter, forkJoin } from 'rxjs';
+import { filter, forkJoin, timer } from 'rxjs';
 import { BaselineInvitation, BaselineMember } from './core/budget.models';
 import { ApiBuildInfoDto, BudgetApiService } from './core/budget-api.service';
 import { BudgetStateService } from './core/budget-state.service';
 import { isResolvedApiBaseRemoteHost } from './core/api-base-url';
 import { I18nService } from './core/i18n.service';
 import { KeycloakAuthService } from './core/keycloak-auth.service';
+import { SessionExpiredUiService } from './core/session-expired-ui.service';
+import { ThemeService } from './core/theme.service';
+import {
+  confirmDiscardUnsavedChanges,
+  isKeyboardCancel,
+  shouldKeyboardCancelFromTarget,
+  shouldKeyboardConfirmForModal
+} from './core/keyboard-confirm-cancel';
 import { APP_BUILD_TIMESTAMP_UTC, APP_VERSION } from './app-version';
 
 @Component({
   selector: 'app-root',
   imports: [CommonModule, FormsModule, RouterOutlet, RouterLink, RouterLinkActive],
-  templateUrl: './app.html'
+  templateUrl: './app.html',
+  styleUrl: './app.css'
 })
 export class App {
   private readonly api = inject(BudgetApiService);
@@ -24,6 +33,8 @@ export class App {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   readonly keycloakAuth = inject(KeycloakAuthService);
+  readonly sessionExpiredUi = inject(SessionExpiredUiService);
+  readonly theme = inject(ThemeService);
   readonly appVersion = APP_VERSION;
   readonly appBuildTimestampUtc = APP_BUILD_TIMESTAMP_UTC;
   readonly apiBuildInfo = signal<ApiBuildInfoDto | null>(null);
@@ -31,9 +42,18 @@ export class App {
   /** Avoid /me + /baselines while Keycloak is on but there is no session (e.g. /sign-in-failed). */
   private shellPrimed = false;
 
+  /** True until the first shell `getBaselines()` after auth/config settles (hides route pages until workspace is usable). */
+  readonly shellBootstrapLoading = signal(false);
+
   readonly userMenuOpen = signal(false);
   readonly userMenuPanelId = 'app-user-menu-panel';
+  readonly workspaceMenuOpen = signal(false);
+  readonly workspaceMenuPanelId = 'app-workspace-menu-panel';
+  readonly accessMenuOpen = signal(false);
+  readonly accessMenuPanelId = 'app-access-menu-panel';
   readonly currentUserDisplayName = signal('');
+  /** Countdown until access-token `exp` (Keycloak); refreshed every second while authenticated. */
+  readonly sessionValidityText = signal('');
 
   newBaselineModalOpen = false;
   newBaselineModalName = '';
@@ -52,10 +72,14 @@ export class App {
 
   renameBaselineModalOpen = false;
   renameBaselineName = '';
+  private renameBaselineOriginalName = '';
   renameBaselineError = '';
 
   /** Toggled off/on so the primary router outlet remounts after a household change (full page reload for the current route). */
   readonly routeOutletMounted = signal(true);
+
+  /** Tiles for the diagonal sample watermark grid (decorative only). */
+  readonly sampleWatermarkTiles = Array.from({ length: 36 }, (_, i) => i);
 
   constructor() {
     this.api
@@ -68,7 +92,13 @@ export class App {
         filter((e): e is NavigationEnd => e instanceof NavigationEnd),
         takeUntilDestroyed(this.destroyRef)
       )
-      .subscribe(() => this.primeShellDataWhenAllowed());
+      .subscribe(() => {
+        this.primeShellDataWhenAllowed();
+      });
+
+    timer(0, 1000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshSessionValidityLabel());
   }
 
   private primeShellDataWhenAllowed(): void {
@@ -86,53 +116,125 @@ export class App {
   }
 
   private loadShellUserAndBaselines(): void {
-    this.reloadBaselines();
+    this.shellBootstrapLoading.set(true);
+    this.reloadBaselines(undefined, { shellInitialLoad: true });
     this.api
       .getMe()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (me) => this.currentUserDisplayName.set(me.displayName?.trim() || ''),
+        next: (me) => {
+          this.currentUserDisplayName.set(me.displayName?.trim() || '');
+          this.theme.applyFromServer(me.colorScheme);
+        },
         error: () => this.currentUserDisplayName.set('')
       });
   }
 
   @HostListener('document:click')
   onDocumentClick(): void {
-    if (this.userMenuOpen()) {
-      this.userMenuOpen.set(false);
+    this.closeAllHeaderMenus();
+  }
+
+  /** Escape dismisses the topmost app shell modal (works from any focused control). */
+  @HostListener('document:keydown.escape', ['$event'])
+  onDocumentEscapeCloseAppModal(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !isKeyboardCancel(event)) {
+      return;
     }
+    if (this.sessionExpiredUi.modalOpen()) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeSessionExpiredModal();
+      return;
+    }
+    if (this.sharingModalOpen()) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeSharingModal();
+      return;
+    }
+    if (this.sentInvitationsModalOpen()) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeSentInvitationsModal();
+      return;
+    }
+    if (this.renameBaselineModalOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.tryCloseRenameBaselineModal();
+      return;
+    }
+    if (this.newBaselineModalOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.tryCloseNewBaselineModal();
+    }
+  }
+
+  private closeAllHeaderMenus(): void {
+    this.userMenuOpen.set(false);
+    this.workspaceMenuOpen.set(false);
+    this.accessMenuOpen.set(false);
   }
 
   toggleUserMenu(event: MouseEvent): void {
     event.stopPropagation();
-    this.userMenuOpen.update((open) => !open);
+    const next = !this.userMenuOpen();
+    this.workspaceMenuOpen.set(false);
+    this.accessMenuOpen.set(false);
+    this.userMenuOpen.set(next);
+  }
+
+  toggleWorkspaceMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    const next = !this.workspaceMenuOpen();
+    this.userMenuOpen.set(false);
+    this.accessMenuOpen.set(false);
+    this.workspaceMenuOpen.set(next);
+  }
+
+  toggleAccessMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    const next = !this.accessMenuOpen();
+    this.userMenuOpen.set(false);
+    this.workspaceMenuOpen.set(false);
+    this.accessMenuOpen.set(next);
   }
 
   closeUserMenu(): void {
     this.userMenuOpen.set(false);
   }
 
-  openNewBaselineFromMenu(): void {
-    this.closeUserMenu();
+  closeWorkspaceMenu(): void {
+    this.workspaceMenuOpen.set(false);
+  }
+
+  closeAccessMenu(): void {
+    this.accessMenuOpen.set(false);
+  }
+
+  openNewBaselineFromWorkspaceMenu(): void {
+    this.closeWorkspaceMenu();
     this.openNewBaselineModal();
   }
 
-  forkFromMenu(): void {
+  forkFromWorkspaceMenu(): void {
     this.forkSelectedBaseline();
-    this.closeUserMenu();
+    this.closeWorkspaceMenu();
   }
 
-  acceptInvitationFromMenu(): void {
+  acceptInvitationFromAccessMenu(): void {
     this.acceptInvitationToken();
   }
 
-  openSharingModalFromMenu(): void {
-    this.closeUserMenu();
+  openSharingModalFromAccessMenu(): void {
+    this.closeAccessMenu();
     this.openSharingModal();
   }
 
-  openSentInvitationsFromMenu(): void {
-    this.closeUserMenu();
+  openSentInvitationsFromAccessMenu(): void {
+    this.closeAccessMenu();
     this.sentInvitationsError = '';
     this.sentInvitationsModalOpen.set(true);
     this.loadSentInvitations();
@@ -148,32 +250,80 @@ export class App {
     void this.keycloakAuth.logout();
   }
 
+  private refreshSessionValidityLabel(): void {
+    if (!this.keycloakAuth.usesKeycloakAuth() || !this.keycloakAuth.isAuthenticated()) {
+      this.sessionValidityText.set('');
+      return;
+    }
+    const expSec = this.keycloakAuth.getAccessTokenExpiryEpochSec();
+    if (expSec === undefined) {
+      this.sessionValidityText.set('');
+      return;
+    }
+    const remainingSec = Math.max(0, Math.floor(expSec - Date.now() / 1000));
+    this.sessionValidityText.set(this.formatAccessTokenCountdown(remainingSec));
+  }
+
+  private formatAccessTokenCountdown(totalSec: number): string {
+    if (totalSec >= 3600) {
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      return `${h}:${m.toString().padStart(2, '0')}:${Math.floor(totalSec % 60)
+        .toString()
+        .padStart(2, '0')}`;
+    }
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
   closeSentInvitationsModal(): void {
     this.sentInvitationsModalOpen.set(false);
     this.sentInvitationsError = '';
   }
 
-  openRenameBaselineFromMenu(): void {
-    this.closeUserMenu();
+  openRenameBaselineFromWorkspaceMenu(): void {
+    this.closeWorkspaceMenu();
     const selected = this.state.selectedBaseline();
-    if (!selected || selected.myAccess !== 'Owner') {
+    if (!selected || selected.myAccess !== 'Owner' || selected.isSampleDemo) {
       return;
     }
     this.renameBaselineError = '';
     this.renameBaselineName = selected.name;
+    this.renameBaselineOriginalName = selected.name;
     this.renameBaselineModalOpen = true;
   }
 
   closeRenameBaselineModal(): void {
     this.renameBaselineModalOpen = false;
     this.renameBaselineName = '';
+    this.renameBaselineOriginalName = '';
     this.renameBaselineError = '';
+  }
+
+  tryCloseRenameBaselineModal(): boolean {
+    if (!this.renameBaselineModalOpen) {
+      return true;
+    }
+    if (!this.isRenameBaselineModalDirty()) {
+      this.closeRenameBaselineModal();
+      return true;
+    }
+    if (confirmDiscardUnsavedChanges(this.i18n.t('budget.discardUnsavedEditConfirm'))) {
+      this.closeRenameBaselineModal();
+      return true;
+    }
+    return false;
+  }
+
+  private isRenameBaselineModalDirty(): boolean {
+    return this.renameBaselineName.trim() !== this.renameBaselineOriginalName.trim();
   }
 
   saveRenamedBaseline(): void {
     const selected = this.state.selectedBaseline();
     const name = this.renameBaselineName.trim();
-    if (!selected || selected.myAccess !== 'Owner' || !name) {
+    if (!selected || selected.myAccess !== 'Owner' || !name || selected.isSampleDemo) {
       return;
     }
 
@@ -192,7 +342,7 @@ export class App {
   }
 
   setSelectedBaselineAsDefault(): void {
-    this.closeUserMenu();
+    this.closeWorkspaceMenu();
     const selected = this.state.selectedBaseline();
     if (!selected || selected.myAccess !== 'Owner' || selected.isPrimaryBudget || selected.isSampleDemo) {
       return;
@@ -407,6 +557,25 @@ export class App {
     this.newBaselineModalName = '';
   }
 
+  tryCloseNewBaselineModal(): boolean {
+    if (!this.newBaselineModalOpen) {
+      return true;
+    }
+    if (!this.isNewBaselineModalDirty()) {
+      this.closeNewBaselineModal();
+      return true;
+    }
+    if (confirmDiscardUnsavedChanges(this.i18n.t('budget.discardUnsavedEditConfirm'))) {
+      this.closeNewBaselineModal();
+      return true;
+    }
+    return false;
+  }
+
+  private isNewBaselineModalDirty(): boolean {
+    return this.newBaselineModalName.trim() !== '';
+  }
+
   confirmNewBaseline(): void {
     const name = this.newBaselineModalName.trim();
     if (!name) {
@@ -420,6 +589,90 @@ export class App {
         this.closeNewBaselineModal();
         this.reloadBaselines();
       });
+  }
+
+  onNewBaselineModalEnterConfirm(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardConfirmForModal(event) || !this.newBaselineModalOpen) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.confirmNewBaseline();
+  }
+
+  onNewBaselineModalEscapeCancel(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event) || !this.newBaselineModalOpen) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.tryCloseNewBaselineModal();
+  }
+
+  onRenameBaselineModalEnterConfirm(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardConfirmForModal(event) || !this.renameBaselineModalOpen) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.saveRenamedBaseline();
+  }
+
+  onRenameBaselineModalEscapeCancel(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event) || !this.renameBaselineModalOpen) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.tryCloseRenameBaselineModal();
+  }
+
+  onSentInvitationsModalEscapeCancel(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event) || !this.sentInvitationsModalOpen()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeSentInvitationsModal();
+  }
+
+  onSharingModalEscapeCancel(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event) || !this.sharingModalOpen()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeSharingModal();
+  }
+
+  onSharingModalEnterConfirm(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardConfirmForModal(event) || !this.sharingModalOpen()) {
+      return;
+    }
+    if (!this.state.selectedBaselineId() || !this.isOwnerOfSelectedBaseline()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.createShareInvitation();
+  }
+
+  onSessionExpiredModalEnterConfirm(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardConfirmForModal(event) || !this.sessionExpiredUi.modalOpen()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.onSessionExpiredSignInAgain();
+  }
+
+  onSessionExpiredModalEscapeCancel(event: Event): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event) || !this.sessionExpiredUi.modalOpen()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeSessionExpiredModal();
   }
 
   forkSelectedBaseline(): void {
@@ -446,7 +699,7 @@ export class App {
       .subscribe({
         next: (response) => {
           this.invitationToken = '';
-          this.closeUserMenu();
+          this.closeAccessMenu();
           this.reloadBaselines(response.baselineId);
         }
       });
@@ -454,6 +707,15 @@ export class App {
 
   t(key: string): string {
     return this.i18n.t(key);
+  }
+
+  onSessionExpiredSignInAgain(): void {
+    this.sessionExpiredUi.close();
+    void this.keycloakAuth.login();
+  }
+
+  closeSessionExpiredModal(): void {
+    this.sessionExpiredUi.close();
   }
 
   onToolbarBaselineSelect(baselineId: string): void {
@@ -469,7 +731,11 @@ export class App {
     queueMicrotask(() => this.routeOutletMounted.set(true));
   }
 
-  private reloadBaselines(selectBaselineId?: string): void {
+  private reloadBaselines(
+    selectBaselineId?: string,
+    options?: { shellInitialLoad?: boolean }
+  ): void {
+    const shellInitialLoad = options?.shellInitialLoad === true;
     this.api
       .getBaselines()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -479,8 +745,16 @@ export class App {
           if (selectBaselineId && baselines.some((b) => b.id === selectBaselineId)) {
             this.state.selectBaseline(selectBaselineId);
           }
+          if (shellInitialLoad) {
+            this.shellBootstrapLoading.set(false);
+          }
         },
-        error: () => this.state.setBaselines([])
+        error: () => {
+          this.state.setBaselines([]);
+          if (shellInitialLoad) {
+            this.shellBootstrapLoading.set(false);
+          }
+        }
       });
   }
 }

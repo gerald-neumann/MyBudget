@@ -21,7 +21,7 @@
     </ul>
   }
 
-  @if (message) {
+  @if (message && !newPositionSheetOpen && !editPositionDraft) {
     <div
       class="shrink-0 rounded border px-3 py-2 text-sm"
       [class]="messageType === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
@@ -65,7 +65,7 @@
       <div class="mt-4 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-violet-100 pb-2 text-sm">
         @if (selectedBaselineAccess() === 'Viewer') {
           <span class="rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
-            Read only
+            {{ t('app.readOnlyBadge') }}
           </span>
         }
         <button
@@ -77,6 +77,22 @@
           <span class="fa-sharp fa-solid fa-circle-plus text-sm leading-none sm:text-base" aria-hidden="true"></span>
           {{ t('budget.openNewPositionSheet') }}
         </button>
+        <div class="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+          <label [class]="yearToolbarLabelClasses()" for="budget-page-year">
+            @if (state.isSelectedYearOffCalendar()) {
+              <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
+            }
+            {{ t('app.yearLabel') }}
+          </label>
+          <input
+            id="budget-page-year"
+            [class]="yearToolbarInputClasses()"
+            type="number"
+            [ngModel]="state.selectedYear()"
+            (ngModelChange)="state.selectedYear.set(+$event)"
+            [attr.aria-label]="t('app.yearLabel')"
+          />
+        </div>
       </div>
     </div>
 
@@ -89,10 +105,10 @@
           (scroll)="onScrollRefreshCategorySuggest($event)"
         >
           <div
-            class="min-h-0 min-w-0 min-w-[780px] flex-1 overflow-y-auto"
+            class="min-h-0 min-w-0 flex-1 overflow-y-auto"
             (scroll)="onScrollRefreshCategorySuggest($event)"
           >
-            <table class="budget-table min-w-[780px] border-collapse text-sm">
+            <table class="budget-table budget-table-data border-collapse text-sm">
               <colgroup>
                 <col class="budget-col-position" />
                 @for (month of months; track month) {
@@ -111,12 +127,15 @@
                       {{ monthLabel(month) }}
                     </th>
                   }
-                  <th class="min-w-0 border-b border-r border-violet-100 bg-violet-50 px-1 py-2 text-right text-xs font-medium text-violet-800 sm:px-2 sm:text-sm">
+                  <th
+                    class="min-w-0 whitespace-nowrap border-b border-r border-violet-100 bg-violet-50 px-1 py-2 text-right text-xs font-medium text-violet-800 sm:px-2 sm:text-sm"
+                  >
                     {{ t('budget.total') }}
                   </th>
-                  <th class="min-w-0 border-b border-violet-100 bg-violet-50 px-1 py-2 text-left text-xs font-medium text-violet-800 sm:px-2 sm:text-sm">
-                    {{ t('budget.action') }}
-                  </th>
+                  <th
+                    class="min-w-0 border-b border-violet-100 bg-violet-50 px-1 py-2 text-right text-xs font-medium text-violet-800 sm:px-2 sm:text-sm"
+                    aria-hidden="true"
+                  ></th>
                 </tr>
               </thead>
               <tbody>
@@ -132,9 +151,8 @@
                   @for (position of group.positions; track position.id) {
                   <tr
                     class="cursor-pointer hover:bg-violet-50/60"
-                    [class.budget-row-selected]="
-                      editPositionSurface === 'inlineSimple' && editPositionDraft?.id === position.id
-                    "
+                    [class.select-none]="position.cadence !== 'None'"
+                    [class.budget-row-selected]="editPositionSurface === 'modal' && editPositionDraft?.id === position.id"
                     (click)="onBudgetRowClick(position, $event)"
                   >
                     <td class="min-w-0 border-b border-r border-violet-100 bg-white px-1 py-1.5 text-xs font-medium text-violet-900 sm:px-2 sm:py-2 sm:text-sm">
@@ -154,7 +172,7 @@
                             class="block min-w-0 flex-1 truncate px-0.5 py-0.5 sm:px-1 sm:py-1"
                             [title]="positionDisplayLabel(position)"
                             >{{ positionDisplayLabel(position) }}</span>
-                        } @else {
+                        } @else if (position.cadence === 'None') {
                           <input
                             #posName
                             class="min-w-0 flex-1 rounded border border-transparent px-0.5 py-0.5 text-xs focus:border-violet-300 focus:outline-none sm:px-1 sm:py-1 sm:text-sm"
@@ -162,7 +180,14 @@
                             [title]="position.name"
                             [readonly]="!canManageSelectedBaseline()"
                             (blur)="onPositionNameBlur(position, posName.value)"
+                            (keydown.enter)="onBudgetTableFieldEnterConfirm($event)"
+                            (keydown.escape)="onBudgetPositionNameEscapeCancel($event, position)"
                           />
+                        } @else {
+                          <span
+                            class="block min-w-0 flex-1 truncate px-0.5 py-0.5 sm:px-1 sm:py-1"
+                            [title]="position.name"
+                            >{{ position.name }}</span>
                         }
                       </div>
                     </td>
@@ -171,157 +196,67 @@
                         class="min-w-0 border-b border-r border-violet-100 px-0.5 py-0.5 transition-colors sm:px-1 sm:py-1"
                         [ngClass]="i18n.signedAmountCellClass(getCellDisplayAmount(position, month))"
                       >
-                        <input
-                          class="w-full min-w-0 rounded border border-transparent bg-transparent px-0.5 py-0.5 text-right text-xs tabular-nums focus:border-violet-300 focus:outline-none sm:px-1 sm:text-sm"
-                          type="text"
-                          inputmode="decimal"
-                          autocomplete="off"
-                          [readonly]="!canManageSelectedBaseline()"
-                          [value]="cellAmountInputValue(position, month)"
-                          (focus)="onCellAmountFocus(position, month)"
-                          (input)="onAmountDraftInput($any($event.target).value)"
-                          (blur)="onAmountFieldBlur()"
-                          (keydown.enter)="$any($event.target).blur()"
-                        />
+                        @if (position.cadence === 'None') {
+                          <input
+                            class="w-full min-w-0 rounded border border-transparent bg-transparent px-0.5 py-0.5 text-right text-xs tabular-nums focus:border-violet-300 focus:outline-none sm:px-1 sm:text-sm"
+                            type="text"
+                            inputmode="decimal"
+                            autocomplete="off"
+                            [readonly]="!canManageSelectedBaseline()"
+                            [value]="cellAmountInputValue(position, month)"
+                            (focus)="onCellAmountFocus(position, month)"
+                            (input)="onAmountDraftInput($any($event.target).value)"
+                            (blur)="onAmountFieldBlur()"
+                            (keydown.enter)="onBudgetTableFieldEnterConfirm($event)"
+                            (keydown.escape)="onBudgetCellAmountEscapeCancel($event, position, month)"
+                          />
+                        } @else {
+                          <div
+                            class="w-full min-w-0 px-0.5 py-0.5 text-right text-xs tabular-nums sm:px-1 sm:py-1 sm:text-sm"
+                          >
+                            {{ i18n.formatAmount(getCellDisplayAmount(position, month)) }}
+                          </div>
+                        }
                       </td>
                     }
                     <td
-                      class="min-w-0 border-b border-r border-violet-100 px-1 py-1.5 text-right text-xs font-semibold tabular-nums sm:px-2 sm:py-2 sm:text-sm"
+                      class="min-w-0 whitespace-nowrap border-b border-r border-violet-100 px-1 py-1.5 text-right text-xs font-semibold tabular-nums sm:px-2 sm:py-2 sm:text-sm"
                       [ngClass]="i18n.signedAmountTextClass(getRowTotal(position))"
                     >
                       {{ i18n.formatSignedAmount(getRowTotal(position)) }}
                     </td>
-                    <td class="min-w-0 border-b border-violet-100 px-0.5 py-1.5 text-left sm:px-2 sm:py-2">
-                      <div class="flex flex-col items-stretch gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start sm:gap-1">
+                    <td class="min-w-0 border-b border-violet-100 px-0.5 py-1.5 text-right sm:px-2 sm:py-2">
+                      <div class="app-table-row-actions">
                         <button
                           type="button"
-                          class="inline-flex items-center justify-center gap-1 rounded bg-violet-500 px-1 py-0.5 text-[10px] font-medium text-white hover:bg-violet-600 sm:px-2 sm:py-1 sm:text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                          [title]="position.cadence === 'None' ? t('budget.editRowHintSimple') : t('budget.editRowHint')"
+                          class="app-table-icon-btn app-table-icon-btn--edit"
+                          [attr.aria-label]="t('budget.barEdit')"
+                          [attr.title]="t('budget.editRowHint')"
                           [disabled]="!canManageSelectedBaseline()"
                           (click)="$event.stopPropagation(); openPrimaryEditForPosition(position)"
                         >
-                          <span class="fa-sharp fa-solid fa-pen-to-square leading-none" aria-hidden="true"></span>
-                          {{ t('budget.barEdit') }}
+                          <span class="fa-sharp fa-solid fa-pen-to-square text-base leading-none" aria-hidden="true"></span>
                         </button>
-                        @if (position.cadence === 'None') {
-                          <button
-                            type="button"
-                            class="inline-flex items-center justify-center gap-1 rounded border border-violet-300 bg-white px-1 py-0.5 text-[10px] font-medium text-violet-800 hover:bg-violet-50 sm:px-2 sm:py-1 sm:text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                            [title]="t('budget.advancedEditHint')"
-                            [disabled]="!canManageSelectedBaseline()"
-                            (click)="$event.stopPropagation(); openAdvancedEditForPosition(position)"
-                          >
-                            <span class="fa-sharp fa-solid fa-sliders leading-none" aria-hidden="true"></span>
-                            {{ t('budget.advancedEdit') }}
-                          </button>
-                        }
                         <button
                           type="button"
-                          class="inline-flex items-center justify-center gap-1 rounded bg-rose-100 px-1 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-200 sm:px-2 sm:py-1 sm:text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                          class="app-table-icon-btn app-table-icon-btn--delete"
+                          [attr.aria-label]="t('budget.delete')"
+                          [attr.title]="t('budget.delete')"
                           [disabled]="!canManageSelectedBaseline() || isPositionDeleteInFlight(position.id)"
                           (click)="$event.stopPropagation(); deletePosition(position)"
                         >
-                          <span class="fa-sharp fa-solid fa-trash-can leading-none" aria-hidden="true"></span>
-                          {{ t('budget.delete') }}
+                          <span class="fa-sharp fa-solid fa-trash-can text-base leading-none" aria-hidden="true"></span>
                         </button>
                       </div>
                     </td>
                   </tr>
-                  @if (editPositionSurface === 'inlineSimple' && editPositionDraft && editPositionDraft.id === position.id) {
-                    <tr class="budget-row-meta-panel">
-                      <td
-                        class="border-b border-violet-200 bg-violet-50/95 px-2 py-3 sm:px-3 sm:py-4"
-                        [attr.colspan]="tableDataColumnCount()"
-                        role="region"
-                        [attr.aria-label]="t('budget.inlineEditTitle')"
-                      >
-                        <div class="mx-auto max-w-3xl">
-                          <h3 class="text-base font-semibold text-violet-900 sm:text-lg">{{ t('budget.inlineEditTitle') }}</h3>
-                          <p class="mt-0.5 text-xs text-violet-600 sm:text-sm">{{ editPositionTitleName() }}</p>
-                          <p class="mt-1 text-xs text-violet-500">{{ t('budget.inlineEditHint') }}</p>
-                          <div class="mt-3 flex flex-col gap-3 sm:mt-4">
-                            <div class="relative min-w-0">
-                              <input
-                                #catEditInlineInput
-                                [(ngModel)]="editPositionDraft.categoryName"
-                                class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
-                                [placeholder]="t('budget.categoryPlaceholder')"
-                                [attr.aria-expanded]="categorySuggestOpen?.kind === 'edit'"
-                                aria-autocomplete="list"
-                                aria-controls="budget-category-suggest"
-                                (focus)="openCategorySuggest(catEditInlineInput, 'edit')"
-                                (input)="refreshSuggestRect(catEditInlineInput)"
-                                (blur)="scheduleCloseCategorySuggest()"
-                              />
-                            </div>
-                            <div>
-                              <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-default-amt-inline">{{
-                                t('budget.defaultAmountLabel')
-                              }}</label>
-                              <input
-                                id="edit-pos-default-amt-inline"
-                                class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-right text-sm tabular-nums text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
-                                type="text"
-                                inputmode="decimal"
-                                autocomplete="off"
-                                [value]="editPositionDefaultInputValue()"
-                                (focus)="onEditPositionDefaultFocus()"
-                                (input)="onAmountDraftInput($any($event.target).value)"
-                                (blur)="onAmountFieldBlur()"
-                                (keydown.enter)="$any($event.target).blur()"
-                              />
-                            </div>
-                            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                              <div>
-                                <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-start-inline">{{ t('budget.validFrom') }}</label>
-                                <input
-                                  id="edit-pos-start-inline"
-                                  [(ngModel)]="editPositionDraft.startDate"
-                                  class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
-                                  type="date"
-                                />
-                              </div>
-                              <div>
-                                <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-end-inline">{{ t('budget.validTo') }}</label>
-                                <input
-                                  id="edit-pos-end-inline"
-                                  [(ngModel)]="editPositionDraft.endDate"
-                                  class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
-                                  type="date"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <div class="mt-4 flex flex-col-reverse gap-2 sm:mt-5 sm:flex-row sm:justify-end">
-                            <button
-                              type="button"
-                              class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-                              (click)="closeEditPositionSheet()"
-                            >
-                              <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
-                              {{ t('app.cancel') }}
-                            </button>
-                            <button
-                              type="button"
-                              class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
-                              [disabled]="!canManageSelectedBaseline()"
-                              (click)="saveEditPosition()"
-                            >
-                              <span class="fa-sharp fa-solid fa-check leading-none" aria-hidden="true"></span>
-                              {{ t('budget.saveChanges') }}
-                            </button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  }
-                  }
+                }
                 }
               </tbody>
             </table>
           </div>
-          <div class="app-budget-summary min-w-0 shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x border-t-2 border-violet-200 bg-violet-100 shadow-[0_-6px_16px_-8px_rgba(91,33,182,0.18)]">
-            <table class="budget-table budget-table-summary min-w-[780px] border-collapse text-xs font-medium sm:text-sm">
+          <div class="app-budget-summary min-w-0 shrink-0 overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x border-t-2 border-violet-200 bg-violet-100 shadow-[0_-6px_16px_-8px_var(--app-shadow-color)]">
+            <table class="budget-table budget-table-summary border-collapse text-xs font-medium sm:text-sm">
               <colgroup>
                 <col class="budget-col-position" />
                 @for (month of months; track month) {
@@ -337,13 +272,16 @@
                   </td>
                   @for (month of months; track month) {
                     <td
-                      class="min-w-0 border-r border-violet-200 bg-violet-100 px-0.5 py-1.5 text-right tabular-nums sm:px-1 sm:py-2"
+                      class="min-w-0 whitespace-nowrap border-r border-violet-200 bg-violet-100 px-0.5 py-1.5 text-right tabular-nums sm:px-1 sm:py-2"
                       [ngClass]="i18n.signedAmountTextClass(getColumnTotal(month))"
                     >
                       {{ i18n.formatSignedAmount(getColumnTotal(month)) }}
                     </td>
                   }
-                  <td class="min-w-0 border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-right tabular-nums sm:px-2 sm:py-2" [ngClass]="i18n.signedAmountTextClass(getYearNetTotal())">
+                  <td
+                    class="min-w-0 whitespace-nowrap border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-right tabular-nums sm:px-2 sm:py-2"
+                    [ngClass]="i18n.signedAmountTextClass(getYearNetTotal())"
+                  >
                     {{ i18n.formatSignedAmount(getYearNetTotal()) }}
                   </td>
                   <td class="min-w-0 bg-violet-100"></td>
@@ -354,14 +292,14 @@
                   </td>
                   @for (month of months; track month) {
                     <td
-                      class="min-w-0 border-r border-violet-200 bg-violet-100 px-0.5 py-1.5 text-right tabular-nums sm:px-1 sm:py-2"
+                      class="min-w-0 whitespace-nowrap border-r border-violet-200 bg-violet-100 px-0.5 py-1.5 text-right tabular-nums sm:px-1 sm:py-2"
                       [ngClass]="i18n.signedAmountTextClass(getRunningCashflowThrough(month))"
                     >
                       {{ i18n.formatSignedAmount(getRunningCashflowThrough(month)) }}
                     </td>
                   }
                   <td
-                    class="min-w-0 border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-right tabular-nums sm:px-2 sm:py-2"
+                    class="min-w-0 whitespace-nowrap border-r border-violet-200 bg-violet-100 px-1 py-1.5 text-right tabular-nums sm:px-2 sm:py-2"
                     [ngClass]="i18n.signedAmountTextClass(getRunningCashflowThrough(12))"
                   >
                     {{ i18n.formatSignedAmount(getRunningCashflowThrough(12)) }}
@@ -383,29 +321,66 @@
   @if (newPositionSheetOpen) {
     <div
       class="fixed inset-0 z-[55] flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
-      (click)="closeNewPositionSheet()"
       role="presentation"
     >
       <div
-        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-md max-h-[min(90dvh,40rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-4 shadow-xl sm:mb-0 sm:max-h-[min(90dvh,40rem)] sm:p-5"
-        (click)="$event.stopPropagation()"
+        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] flex w-full max-w-md max-h-[min(90dvh,40rem)] flex-col overflow-hidden rounded-xl border border-violet-100 bg-white shadow-xl sm:mb-0 sm:max-h-[min(90dvh,40rem)]"
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="t('budget.newPositionSheetTitle')"
+        tabindex="-1"
+        (keydown.enter)="onBudgetSheetEnterConfirm($event, 'new')"
+        (keydown.escape)="onBudgetSheetEscapeCancel($event, 'new')"
       >
-        <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.newPositionSheetTitle') }}</h2>
-        <div class="mt-4 flex flex-col gap-3">
-          <input
-            [(ngModel)]="newPosition.name"
-            class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
-            [placeholder]="t('budget.newPositionPlaceholder')"
-            (keydown.escape)="closeNewPositionSheet()"
-          />
+        <div class="shrink-0 px-4 pt-4 sm:px-5 sm:pt-5">
+          <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.newPositionSheetTitle') }}</h2>
+        @if (newPositionSheetBanner) {
+          <div
+            class="mt-3 rounded border px-3 py-2 text-sm"
+            [class]="
+              newPositionSheetBannerType === 'error'
+                ? 'border-rose-200 bg-rose-50 text-rose-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            "
+            role="alert"
+          >
+            {{ t(newPositionSheetBanner) }}
+          </div>
+        }
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <div class="flex flex-col gap-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-name">{{ t('budget.position') }}</label>
+            <input
+              id="new-pos-name"
+              [(ngModel)]="newPosition.name"
+              class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+              [ngClass]="
+                showNewPositionSheetValidation() && newPositionNameInvalid()
+                  ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                  : 'border-violet-200 bg-violet-50 text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+              "
+              [attr.aria-invalid]="showNewPositionSheetValidation() && newPositionNameInvalid() ? 'true' : null"
+              [placeholder]="t('budget.newPositionPlaceholder')"
+            />
+            @if (showNewPositionSheetValidation() && newPositionNameInvalid()) {
+              <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
+            }
+          </div>
           <div class="relative min-w-0">
+            <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-category">{{ t('budget.category') }}</label>
             <input
               #catNewSheetInput
+              id="new-pos-category"
               [(ngModel)]="newPosition.categoryName"
-              class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+              [ngClass]="
+                showNewPositionSheetValidation() && newPositionCategoryInvalid()
+                  ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                  : 'border-violet-200 bg-violet-50 text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+              "
+              [attr.aria-invalid]="showNewPositionSheetValidation() && newPositionCategoryInvalid() ? 'true' : null"
               [placeholder]="t('budget.categoryPlaceholder')"
               [attr.aria-expanded]="categorySuggestOpen?.kind === 'new'"
               aria-autocomplete="list"
@@ -414,6 +389,9 @@
               (input)="refreshSuggestRect(catNewSheetInput)"
               (blur)="scheduleCloseCategorySuggest()"
             />
+            @if (showNewPositionSheetValidation() && newPositionCategoryInvalid()) {
+              <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
+            }
           </div>
           <select
             [(ngModel)]="newPosition.cadence"
@@ -430,7 +408,13 @@
             }}</label>
             <input
               id="new-pos-default-amt"
-              class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-right text-sm tabular-nums text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              class="min-h-10 w-full rounded border px-3 py-2 text-right text-sm tabular-nums outline-none sm:min-h-0"
+              [ngClass]="
+                showNewPositionSheetValidation() && newPositionDefaultAmountInvalid()
+                  ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                  : 'border-violet-200 bg-violet-50 text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+              "
+              [attr.aria-invalid]="showNewPositionSheetValidation() && newPositionDefaultAmountInvalid() ? 'true' : null"
               type="text"
               inputmode="decimal"
               autocomplete="off"
@@ -438,8 +422,10 @@
               (focus)="onNewPositionDefaultFocus()"
               (input)="onAmountDraftInput($any($event.target).value)"
               (blur)="onAmountFieldBlur()"
-              (keydown.enter)="$any($event.target).blur()"
             />
+            @if (showNewPositionSheetValidation() && newPositionDefaultAmountInvalid()) {
+              <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.invalidAmount') }}</p>
+            }
           </div>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -447,39 +433,62 @@
               <input
                 id="new-pos-start"
                 [(ngModel)]="newPosition.startDate"
-                class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+                [ngClass]="
+                  showNewPositionSheetValidation() && newPositionStartInvalid()
+                    ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                    : 'border-violet-200 bg-violet-50 text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                "
+                [attr.aria-invalid]="showNewPositionSheetValidation() && newPositionStartInvalid() ? 'true' : null"
                 type="date"
               />
+              @if (showNewPositionSheetValidation() && newPositionStartInvalid()) {
+                <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
+              }
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-end">{{ t('budget.validTo') }}</label>
               <input
                 id="new-pos-end"
                 [(ngModel)]="newPosition.endDate"
-                class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+                [ngClass]="
+                  showNewPositionSheetValidation() && newPositionEndBeforeStartInvalid()
+                    ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                    : 'border-violet-200 bg-violet-50 text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                "
+                [attr.aria-invalid]="showNewPositionSheetValidation() && newPositionEndBeforeStartInvalid() ? 'true' : null"
                 type="date"
               />
+              @if (showNewPositionSheetValidation() && newPositionEndBeforeStartInvalid()) {
+                <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.endBeforeStart') }}</p>
+              }
             </div>
           </div>
         </div>
-        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-            (click)="closeNewPositionSheet()"
-          >
-            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
-            {{ t('app.cancel') }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
-            [disabled]="!canManageSelectedBaseline()"
-            (click)="createPosition()"
-          >
-            <span class="fa-sharp fa-solid fa-plus leading-none" aria-hidden="true"></span>
-            {{ t('budget.add') }}
-          </button>
+        </div>
+        <div class="shrink-0 border-t border-violet-100 px-4 py-4 sm:px-5 sm:py-4">
+          <div class="inline-flex w-full items-center justify-end gap-1 sm:w-auto">
+            <button
+              type="button"
+              class="app-table-icon-btn app-table-icon-btn--confirm"
+              [disabled]="!canManageSelectedBaseline()"
+              (click)="createPosition()"
+              [attr.aria-label]="t('budget.confirmEntry')"
+              [attr.title]="t('budget.confirmEntry')"
+            >
+              <span class="fa-sharp fa-solid fa-check text-base leading-none" aria-hidden="true"></span>
+            </button>
+            <button
+              type="button"
+              class="app-table-icon-btn app-table-icon-btn--cancel"
+              (click)="tryCloseNewPositionSheet()"
+              [attr.aria-label]="t('app.cancel')"
+              [attr.title]="t('app.cancel')"
+            >
+              <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -488,24 +497,67 @@
   @if (editPositionSurface === 'modal' && editPositionDraft) {
     <div
       class="fixed inset-0 z-[56] flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
-      (click)="closeEditPositionSheet()"
       role="presentation"
     >
       <div
-        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-md max-h-[min(90dvh,40rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-4 shadow-xl sm:mb-0 sm:max-h-[min(90dvh,40rem)] sm:p-5"
-        (click)="$event.stopPropagation()"
+        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] flex w-full max-w-md max-h-[min(90dvh,40rem)] flex-col overflow-hidden rounded-xl border border-violet-100 bg-white shadow-xl sm:mb-0 sm:max-h-[min(90dvh,40rem)]"
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="t('budget.editPositionSheetTitle')"
+        tabindex="-1"
+        (keydown.enter)="onBudgetSheetEnterConfirm($event, 'edit')"
+        (keydown.escape)="onBudgetSheetEscapeCancel($event, 'edit')"
       >
-        <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.editPositionSheetTitle') }}</h2>
-        <p class="mt-1 text-sm text-violet-600">{{ editPositionTitleName() }}</p>
-        <div class="mt-4 flex flex-col gap-3">
+        <div class="shrink-0 px-4 pt-4 sm:px-5 sm:pt-5">
+          <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.editPositionSheetTitle') }}</h2>
+          @if (editPositionSheetBanner) {
+            <div
+              class="mt-3 rounded border px-3 py-2 text-sm"
+              [class]="
+                editPositionSheetBannerType === 'error'
+                  ? 'border-rose-200 bg-rose-50 text-rose-700'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              "
+              role="alert"
+            >
+              {{ t(editPositionSheetBanner) }}
+            </div>
+          }
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <div class="flex flex-col gap-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-name-modal">{{ t('budget.position') }}</label>
+            <input
+              id="edit-pos-name-modal"
+              [(ngModel)]="editPositionDraft.name"
+              class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+              [ngClass]="
+                showEditPositionValidation() && editPositionNameInvalid()
+                  ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                  : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+              "
+              [attr.aria-invalid]="showEditPositionValidation() && editPositionNameInvalid() ? 'true' : null"
+              type="text"
+              autocomplete="off"
+            />
+            @if (showEditPositionValidation() && editPositionNameInvalid()) {
+              <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
+            }
+          </div>
           <div class="relative min-w-0">
+            <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-category-modal">{{ t('budget.category') }}</label>
             <input
               #catEditModalInput
+              id="edit-pos-category-modal"
               [(ngModel)]="editPositionDraft.categoryName"
-              class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+              [ngClass]="
+                showEditPositionValidation() && editPositionCategoryInvalid()
+                  ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                  : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+              "
+              [attr.aria-invalid]="showEditPositionValidation() && editPositionCategoryInvalid() ? 'true' : null"
               [placeholder]="t('budget.categoryPlaceholder')"
               [attr.aria-expanded]="categorySuggestOpen?.kind === 'edit'"
               aria-autocomplete="list"
@@ -513,8 +565,10 @@
               (focus)="openCategorySuggest(catEditModalInput, 'edit')"
               (input)="refreshSuggestRect(catEditModalInput)"
               (blur)="scheduleCloseCategorySuggest()"
-              (keydown.escape)="closeEditPositionSheet()"
             />
+            @if (showEditPositionValidation() && editPositionCategoryInvalid()) {
+              <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
+            }
           </div>
           <select
             [(ngModel)]="editPositionDraft.cadence"
@@ -530,7 +584,13 @@
             <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-default-amt-modal">{{ t('budget.defaultAmountLabel') }}</label>
             <input
               id="edit-pos-default-amt-modal"
-              class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-right text-sm tabular-nums text-violet-900 outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 sm:min-h-0"
+              class="min-h-10 w-full rounded border px-3 py-2 text-right text-sm tabular-nums outline-none sm:min-h-0"
+              [ngClass]="
+                showEditPositionValidation() && editPositionDefaultAmountInvalid()
+                  ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                  : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+              "
+              [attr.aria-invalid]="showEditPositionValidation() && editPositionDefaultAmountInvalid() ? 'true' : null"
               type="text"
               inputmode="decimal"
               autocomplete="off"
@@ -538,8 +598,10 @@
               (focus)="onEditPositionDefaultFocus()"
               (input)="onAmountDraftInput($any($event.target).value)"
               (blur)="onAmountFieldBlur()"
-              (keydown.enter)="$any($event.target).blur()"
             />
+            @if (showEditPositionValidation() && editPositionDefaultAmountInvalid()) {
+              <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.invalidAmount') }}</p>
+            }
           </div>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
@@ -547,22 +609,47 @@
               <input
                 id="edit-pos-start-modal"
                 [(ngModel)]="editPositionDraft.startDate"
-                class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+                [ngClass]="
+                  showEditPositionValidation() && editPositionStartInvalid()
+                    ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                    : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                "
+                [attr.aria-invalid]="showEditPositionValidation() && editPositionStartInvalid() ? 'true' : null"
                 type="date"
               />
+              @if (showEditPositionValidation() && editPositionStartInvalid()) {
+                <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
+              }
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-end-modal">{{ t('budget.validTo') }}</label>
               <input
                 id="edit-pos-end-modal"
                 [(ngModel)]="editPositionDraft.endDate"
-                class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+                [ngClass]="
+                  showEditPositionValidation() && editPositionEndBeforeStartInvalid()
+                    ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                    : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                "
+                [attr.aria-invalid]="showEditPositionValidation() && editPositionEndBeforeStartInvalid() ? 'true' : null"
                 type="date"
               />
+              @if (showEditPositionValidation() && editPositionEndBeforeStartInvalid()) {
+                <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.endBeforeStart') }}</p>
+              }
             </div>
           </div>
           @if (editPositionDraft.cadence !== 'None') {
-            <fieldset class="rounded border border-violet-100 bg-violet-50/80 p-3">
+            <fieldset
+              class="rounded border p-3"
+              [ngClass]="
+                showEditPositionValidation() && editPositionPlannedApplyRangeInvalid()
+                  ? 'border-rose-300 bg-rose-50/50'
+                  : 'border-violet-100 bg-violet-50/80'
+              "
+            >
               <legend class="px-1 text-xs font-medium text-violet-800">{{ t('budget.plannedApplyLegend') }}</legend>
               <p class="mb-2 text-xs text-violet-600">{{ t('budget.plannedApplyHint') }}</p>
               <div class="flex flex-col gap-2">
@@ -582,7 +669,12 @@
                     <input
                       id="edit-planned-from-modal"
                       [(ngModel)]="editPositionPlannedApplyFrom"
-                      class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                      class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+                      [ngClass]="
+                        showEditPositionValidation() && editPositionPlannedApplyRangeInvalid()
+                          ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                          : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                      "
                       type="date"
                     />
                   </div>
@@ -591,11 +683,19 @@
                     <input
                       id="edit-planned-to-modal"
                       [(ngModel)]="editPositionPlannedApplyTo"
-                      class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                      class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
+                      [ngClass]="
+                        showEditPositionValidation() && editPositionPlannedApplyRangeInvalid()
+                          ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                          : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                      "
                       type="date"
                     />
                   </div>
                 </div>
+                @if (showEditPositionValidation() && editPositionPlannedApplyRangeInvalid()) {
+                  <p class="mt-2 text-xs text-rose-600">{{ t('budget.validation.plannedRange') }}</p>
+                }
               }
             </fieldset>
           }
@@ -614,24 +714,29 @@
             </div>
           }
         </div>
-        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-            (click)="closeEditPositionSheet()"
-          >
-            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
-            {{ t('app.cancel') }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
-            [disabled]="!canManageSelectedBaseline()"
-            (click)="saveEditPosition()"
-          >
-            <span class="fa-sharp fa-solid fa-check leading-none" aria-hidden="true"></span>
-            {{ t('budget.saveChanges') }}
-          </button>
+        </div>
+        <div class="shrink-0 border-t border-violet-100 px-4 py-4 sm:px-5 sm:py-4">
+          <div class="inline-flex w-full items-center justify-end gap-1 sm:w-auto">
+            <button
+              type="button"
+              class="app-table-icon-btn app-table-icon-btn--confirm"
+              [disabled]="!canManageSelectedBaseline()"
+              (click)="saveEditPosition()"
+              [attr.aria-label]="t('budget.confirmEntry')"
+              [attr.title]="t('budget.confirmEntry')"
+            >
+              <span class="fa-sharp fa-solid fa-check text-base leading-none" aria-hidden="true"></span>
+            </button>
+            <button
+              type="button"
+              class="app-table-icon-btn app-table-icon-btn--cancel"
+              (click)="tryCloseEditPositionSheet()"
+              [attr.aria-label]="t('app.cancel')"
+              [attr.title]="t('app.cancel')"
+            >
+              <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

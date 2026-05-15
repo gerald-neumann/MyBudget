@@ -8,7 +8,7 @@ import { KeycloakAuthService } from './keycloak-auth.service';
 
 let missingBearerLogRemaining = 12;
 
-/** Same idea as ReSpecT `AuthInterceptor.getTokenForRequest`: attach existing token; only call `updateToken(0)` when none yet. */
+/** Attaches Bearer token after `getTokenForRequest()` refreshes it when needed (idle / near expiry). */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const keycloakAuth = inject(KeycloakAuthService);
   return from(keycloakAuth.getTokenForRequest()).pipe(

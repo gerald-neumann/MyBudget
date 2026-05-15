@@ -13,6 +13,19 @@ export class BudgetStateService {
     this.baselines().find((baseline) => baseline.id === this.selectedBaselineId()) ?? null
   );
 
+  /** True when the workspace year is not the current calendar year (same cue as spendings “active” filter chrome). */
+  readonly isSelectedYearOffCalendar = computed(() => this.selectedYear() !== new Date().getFullYear());
+
+  readonly isSampleBaselineSelected = computed(() => !!this.selectedBaseline()?.isSampleDemo);
+
+  canManageSelectedBaseline(): boolean {
+    const baseline = this.selectedBaseline();
+    if (!baseline) {
+      return false;
+    }
+    return baseline.myAccess === 'Owner' || baseline.myAccess === 'Editor';
+  }
+
   /** Persists workspace choice for the next visit. */
   selectBaseline(id: string | null): void {
     this.selectedBaselineId.set(id);

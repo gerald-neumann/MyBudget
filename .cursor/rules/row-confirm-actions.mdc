@@ -1,0 +1,64 @@
+---
+description: Enter confirms edits; compact OK/Cancel like spendings (shared UI)
+globs: frontend/my-budget-ui/**/*.html
+alwaysApply: false
+---
+
+# Row and sheet confirm actions (shared UI)
+
+## Keyboard: Enter confirms, Escape cancels
+
+App-wide convention (helpers in `core/keyboard-confirm-cancel.ts`):
+
+- **`Enter`** — same as the green check / primary OK (`shouldKeyboardConfirmFromTarget`: not on `button` or `textarea`).
+- **`Escape`** — same as the xmark cancel (`shouldKeyboardCancelFromTarget`). Always dismisses, including when a button is focused. App/budget pages also listen on `document:keydown.escape` so modals close reliably.
+
+### Enter / Return confirms
+
+- **Income & spending (`spendings-page`)**: `Enter` on an editing or new-entry row runs the same path as the green check (`onSpendingsTableRowEnterConfirm` → `confirmEditRow` / `confirmNewEntryRow`).
+- **Accounts (`accounts-page`)**: `Enter` on new/edit row → `onAccountsTableRowEnterConfirm` → `confirmNewAccountRow` / `saveEdit`.
+- **Budget table**: `Enter` in an in-table amount or one-off **position name** field confirms by blurring the field (`onBudgetTableFieldEnterConfirm`), matching “leave field to persist” behaviour.
+- **Budget dialogs** (new position sheet, edit position modal): `Enter` on the `role="dialog"` root runs the primary action (`onBudgetSheetEnterConfirm`): blur the focused control first (so amount drafts flush), then `createPosition()` / `saveEditPosition()`.
+- **App modals** (new/rename baseline, session expired): `Enter` on `role="dialog"` → `on*ModalEnterConfirm` in `app.ts`.
+
+### Escape cancels
+
+- **Spendings / accounts**: `Escape` on new or edit table rows → `on*TableRowEscapeCancel` → `tryClose*` / `tryCancel*` (confirm via `confirmDiscardUnsavedChanges` when the draft is dirty).
+- **All cancel paths** (xmark, Escape, backdrop where applicable): use `tryClose*` / `tryCancel*` — never discard silently when the form is dirty.
+- **Budget table**: `Escape` on one-off name reverts without save (`onBudgetPositionNameEscapeCancel`); on amount cell discards draft (`onBudgetCellAmountEscapeCancel`).
+- **Budget sheets**: `Escape` on dialog → `onBudgetSheetEscapeCancel` → `closeNewPositionSheet` / `tryCloseEditPositionSheet` (category suggest still closes first via document listener).
+- **App modals** (baseline, sharing, invitations, session): `Escape` on `role="dialog"` → `on*ModalEscapeCancel`; fallback `App.onDocumentEscapeCloseAppModal`. Sharing: `Enter` → create invite when owner. All dialogs: `tabindex="-1"`.
+- **Budget sheets**: `tryCloseEditPositionSheet` / `tryCloseNewPositionSheet` (confirm when dirty); document listener delegates to these after category suggest.
+
+## OK / Cancel affordances (match Einnahmen & Ausgaben)
+
+For **inline table rows** and **budget bottom sheets / modals** where the user confirms or discards a row or form:
+
+- **Confirm**: **`app-table-icon-btn app-table-icon-btn--confirm`**, **`fa-sharp fa-solid fa-check`**, `aria-label` and `title` from **`budget.confirmEntry`** (German “Übernehmen”, English “Confirm”).
+- **Cancel**: **`app-table-icon-btn app-table-icon-btn--cancel`**, **`fa-sharp fa-solid fa-xmark`**, `aria-label` and `title` from **`app.cancel`**.
+- Wrap the pair in `inline-flex items-center justify-end gap-1` (see `spendings-page.component.html` action cells and `budget-page.component.html` sheet footers).
+
+Do **not** use the older wide violet “Save” + text “Cancel” footer for new flows unless there is a strong reason; keep parity with `spendings-page` for confirm/discard.
+
+## View-mode row actions (edit / delete)
+
+For read-only table rows (accounts, spendings, budget positions):
+
+- Wrap actions in **`app-table-row-actions`** (`inline-flex`, end-aligned, `gap-1`).
+- **Edit**: **`app-table-icon-btn app-table-icon-btn--edit`**, icon **`fa-sharp fa-solid fa-pen-to-square`**, `aria-label`/`title` from **`budget.barEdit`** (budget rows may use **`budget.editRowHint`** for `title` when opening the position dialog).
+- **Delete**: **`app-table-icon-btn app-table-icon-btn--delete`**, icon **`fa-sharp fa-solid fa-trash-can`**, `aria-label`/`title` from **`budget.delete`**.
+- Icon-only buttons (no text labels); shared styles live in `styles.css`.
+
+## Delete affordance (avoid Cancel/Delete confusion)
+
+For row-level destructive actions in tables (e.g. accounts, spendings, budget):
+
+- Use a dedicated trash icon: **`fa-sharp fa-solid fa-trash-can`** (never `fa-xmark` for delete).
+- Do **not** use `fa-xmark` for delete; `xmark` is reserved for **Cancel** (`app.cancel`).
+
+## Reference
+
+- `spendings-page.component.html` — new row and edit row action cells; `(keydown.enter)` on the table row.
+- `spendings-page.component.ts` — `onSpendingsTableRowEnterConfirm`.
+- `budget-page.component.html` — sheet footers; `(keydown.enter)` on dialog roots; table field Enter handler.
+- `budget-page.component.ts` — `onBudgetSheetEnterConfirm`, `onBudgetTableFieldEnterConfirm`.

@@ -9,6 +9,11 @@ import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
 import { Account } from '../core/budget.models';
+import {
+  confirmDiscardUnsavedChanges,
+  shouldKeyboardCancelFromTarget,
+  shouldKeyboardConfirmFromTarget
+} from '../core/keyboard-confirm-cancel';
 
 @Component({
   selector: 'app-accounts-page',
@@ -37,7 +42,6 @@ export class AccountsPageComponent {
     initialBalance: 0
   };
   private newInitialEdit: string | null = null;
-  private newAccountSnapshot = '';
 
   editingId: string | null = null;
   editName = '';
@@ -45,6 +49,12 @@ export class AccountsPageComponent {
   editInitialBalance = 0;
   editSortOrder = 0;
   private editInitialDraft: string | null = null;
+
+  /** Serialized account row at edit start (dirty check before cancel). */
+  private editAccountBaseline = '';
+
+  /** Serialized new-account row at open (dirty check before cancel). */
+  private newAccountBaseline = '';
 
   private loadRequestId = 0;
 
@@ -54,13 +64,13 @@ export class AccountsPageComponent {
       if (!baselineId) {
         this.accounts = [];
         this.loading.set(false);
-        this.cancelEdit();
-        this.newAccountRowActive.set(false);
+        this.forceCancelEdit();
+        this.forceCancelNewAccountRow();
         return;
       }
 
-      this.cancelEdit();
-      this.newAccountRowActive.set(false);
+      this.forceCancelEdit();
+      this.forceCancelNewAccountRow();
 
       const id = ++this.loadRequestId;
       this.loading.set(true);
@@ -89,8 +99,7 @@ export class AccountsPageComponent {
   }
 
   canManageAccounts(): boolean {
-    const access = this.state.selectedBaseline()?.myAccess;
-    return access === 'Editor' || access === 'Owner';
+    return this.state.canManageSelectedBaseline();
   }
 
   t(key: string): string {
@@ -127,9 +136,6 @@ export class AccountsPageComponent {
 
   onNewInitialBlur(): void {
     this.flushNewInitialDraft();
-    if (this.newAccountRowActive()) {
-      this.tryCommitNewAccountOnBlur();
-    }
   }
 
   editInitialInputValue(): string {
@@ -171,11 +177,11 @@ export class AccountsPageComponent {
     if (!this.state.selectedBaselineId() || !this.canManageAccounts()) {
       return;
     }
-    this.cancelEdit();
+    this.tryCancelEdit();
     this.newAccount = { name: '', typeLabel: '', initialBalance: 0 };
     this.newInitialEdit = null;
+    this.captureNewAccountBaseline();
     this.newAccountRowActive.set(true);
-    this.captureNewAccountSnapshot();
     queueMicrotask(() => {
       const el = this.accountsScroll()?.nativeElement;
       if (el) {
@@ -189,42 +195,44 @@ export class AccountsPageComponent {
     if (this.savingNewAccount()) {
       return;
     }
+    this.tryCancelNewAccountRow();
+  }
+
+  tryCancelNewAccountRow(): boolean {
+    if (!this.newAccountRowActive()) {
+      return true;
+    }
+    this.flushNewInitialDraft();
+    if (!this.isNewAccountDirty()) {
+      this.forceCancelNewAccountRow();
+      return true;
+    }
+    if (confirmDiscardUnsavedChanges(this.t('budget.discardUnsavedEditConfirm'))) {
+      this.forceCancelNewAccountRow();
+      return true;
+    }
+    return false;
+  }
+
+  private forceCancelNewAccountRow(): void {
     this.newAccountRowActive.set(false);
     this.newAccount = { name: '', typeLabel: '', initialBalance: 0 };
     this.newInitialEdit = null;
+    this.newAccountBaseline = '';
   }
 
-  tryCommitNewAccountOnBlur(): void {
+  confirmNewAccountRow(ev?: Event): void {
+    ev?.stopPropagation();
     if (!this.newAccountRowActive() || this.savingNewAccount()) {
       return;
     }
     this.flushNewInitialDraft();
-    if (!this.isNewAccountDirty()) {
-      return;
-    }
     const name = this.newAccount.name.trim();
     if (!name) {
       this.setMessage('accounts.nameRequired', 'error');
       return;
     }
     this.submitNewAccount();
-  }
-
-  private captureNewAccountSnapshot(): void {
-    this.flushNewInitialDraft();
-    this.newAccountSnapshot = this.serializeNewAccountState();
-  }
-
-  private serializeNewAccountState(): string {
-    return JSON.stringify({
-      name: this.newAccount.name.trim(),
-      typeLabel: this.newAccount.typeLabel.trim(),
-      initialBalance: this.effectiveNewInitial()
-    });
-  }
-
-  private isNewAccountDirty(): boolean {
-    return this.serializeNewAccountState() !== this.newAccountSnapshot;
   }
 
   private submitNewAccount(): void {
@@ -250,10 +258,8 @@ export class AccountsPageComponent {
       )
       .subscribe({
         next: () => {
-          this.newAccount = { name: '', typeLabel: '', initialBalance: 0 };
-          this.newInitialEdit = null;
-          this.newAccountRowActive.set(false);
           this.setMessage('accounts.createSuccess', 'success');
+          this.forceCancelNewAccountRow();
           this.loadAccounts();
         },
         error: (err: HttpErrorResponse) => {
@@ -310,7 +316,7 @@ export class AccountsPageComponent {
       return;
     }
     if (this.newAccountRowActive()) {
-      this.cancelNewAccountRow();
+      this.tryCancelNewAccountRow();
     }
     this.editingId = row.id;
     this.editName = row.name;
@@ -318,11 +324,129 @@ export class AccountsPageComponent {
     this.editInitialBalance = row.initialBalance;
     this.editSortOrder = row.sortOrder;
     this.editInitialDraft = null;
+    this.captureEditAccountBaseline();
   }
 
   cancelEdit(): void {
+    this.tryCancelEdit();
+  }
+
+  tryCancelEdit(): boolean {
+    if (!this.editingId) {
+      return true;
+    }
+    if (this.editInitialDraft !== null) {
+      const parsed = this.i18n.parseAmount(this.editInitialDraft);
+      if (parsed !== null) {
+        this.editInitialBalance = parsed;
+      }
+      this.editInitialDraft = null;
+    }
+    if (!this.isAccountEditDirty()) {
+      this.forceCancelEdit();
+      return true;
+    }
+    if (confirmDiscardUnsavedChanges(this.t('budget.discardUnsavedEditConfirm'))) {
+      this.forceCancelEdit();
+      return true;
+    }
+    return false;
+  }
+
+  private forceCancelEdit(): void {
     this.editingId = null;
     this.editInitialDraft = null;
+    this.editAccountBaseline = '';
+  }
+
+  private captureEditAccountBaseline(): void {
+    this.editAccountBaseline = this.serializeAccountEditState();
+  }
+
+  private captureNewAccountBaseline(): void {
+    this.newAccountBaseline = this.serializeNewAccountState();
+  }
+
+  private isAccountEditDirty(): boolean {
+    if (!this.editingId || !this.editAccountBaseline) {
+      return false;
+    }
+    return this.serializeAccountEditState() !== this.editAccountBaseline;
+  }
+
+  private isNewAccountDirty(): boolean {
+    if (!this.newAccountBaseline) {
+      return false;
+    }
+    return this.serializeNewAccountState() !== this.newAccountBaseline;
+  }
+
+  private serializeAccountEditState(): string {
+    return JSON.stringify({
+      name: this.editName.trim(),
+      typeLabel: this.editTypeLabel.trim(),
+      initialBalance: this.editInitialBalance
+    });
+  }
+
+  private serializeNewAccountState(): string {
+    return JSON.stringify({
+      name: this.newAccount.name.trim(),
+      typeLabel: this.newAccount.typeLabel.trim(),
+      initialBalance: this.effectiveNewInitial()
+    });
+  }
+
+  onAccountDisplayRowClick(event: Event, row: Account): void {
+    const t = event.target;
+    if (!(t instanceof HTMLElement) || t.closest('button, a, input, select, textarea, label')) {
+      return;
+    }
+    if (this.editingId === row.id) {
+      return;
+    }
+    this.startEdit(row);
+  }
+
+  /** Enter on new/edit row confirms via the same action buttons. */
+  onAccountsTableRowEnterConfirm(event: Event, row?: Account): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardConfirmFromTarget(event)) {
+      return;
+    }
+    if (row) {
+      if (this.editingId !== row.id) {
+        return;
+      }
+    } else if (!this.newAccountRowActive()) {
+      return;
+    }
+    event.preventDefault();
+    if (row) {
+      this.onEditInitialBlur();
+      this.saveEdit();
+    } else {
+      this.confirmNewAccountRow();
+    }
+  }
+
+  /** Escape on new/edit row cancels via the same action buttons. */
+  onAccountsTableRowEscapeCancel(event: Event, row?: Account): void {
+    if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event)) {
+      return;
+    }
+    if (row) {
+      if (this.editingId !== row.id) {
+        return;
+      }
+    } else if (!this.newAccountRowActive()) {
+      return;
+    }
+    event.preventDefault();
+    if (row) {
+      this.tryCancelEdit();
+    } else {
+      this.tryCancelNewAccountRow();
+    }
   }
 
   saveEdit(): void {
@@ -345,7 +469,7 @@ export class AccountsPageComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.cancelEdit();
+          this.forceCancelEdit();
           this.setMessage('accounts.updateSuccess', 'success');
           this.loadAccounts();
         },

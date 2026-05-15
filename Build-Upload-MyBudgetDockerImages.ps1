@@ -157,14 +157,26 @@ if (-not $SkipBuild) {
         throw "FONTAWESOME_PRO_TOKEN is not set (required for Font Awesome Pro npm install). Set it in this shell, then re-run."
     }
 
+    $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $nodeCmd) {
+        throw "node not found on PATH (required to stamp shared version/build time before docker build)."
+    }
+
+    $buildTimestampUtc = [DateTime]::UtcNow.ToString("o")
+    Write-Host "Stamping shared version and build time (UTC $buildTimestampUtc)..."
+    & $nodeCmd.Source (Join-Path $repoRoot "scripts\stamp-build-info.cjs") --timestamp $buildTimestampUtc
+    if ($LASTEXITCODE -ne 0) { throw "stamp-build-info failed with exit $LASTEXITCODE." }
+
+    $dockerBuildArgs = @("--build-arg", "BUILD_TIMESTAMP_UTC=$buildTimestampUtc")
+
     Push-Location $repoRoot
     try {
         Write-Host "Building API image (platform $platform)..."
-        docker build --platform=$platform -f backend/MyBudget.Api/Dockerfile -t mybudget-api:local .
+        docker build --platform=$platform @dockerBuildArgs -f backend/MyBudget.Api/Dockerfile -t mybudget-api:local .
         if ($LASTEXITCODE -ne 0) { throw "docker build (API) failed with exit $LASTEXITCODE." }
 
         Write-Host "Building UI image (platform $platform)..."
-        docker build --platform=$platform -f frontend/my-budget-ui/Dockerfile -t mybudget-ui:local --secret id=fontawesome_npm_token,env=FONTAWESOME_PRO_TOKEN .
+        docker build --platform=$platform @dockerBuildArgs -f frontend/my-budget-ui/Dockerfile -t mybudget-ui:local --secret id=fontawesome_npm_token,env=FONTAWESOME_PRO_TOKEN .
         if ($LASTEXITCODE -ne 0) { throw "docker build (UI) failed with exit $LASTEXITCODE." }
     }
     finally {

@@ -4,9 +4,11 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MyBudget.Api.Infrastructure.ActualAttachments;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
@@ -45,6 +47,24 @@ builder.Services.AddScoped<IPlanningMaterializationService, PlanningMaterializat
 builder.Services.AddScoped<IUserWorkspaceBootstrapper, UserWorkspaceBootstrapper>();
 builder.Services.AddScoped<IBaselineAccessService, BaselineAccessService>();
 builder.Services.AddSingleton<IInvitationTokenCodec, InvitationTokenCodec>();
+
+builder.Services.Configure<ActualAttachmentOptions>(builder.Configuration.GetSection(ActualAttachmentOptions.SectionName));
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 22 * 1024 * 1024;
+});
+builder.Services.AddSingleton<IActualAttachmentBlobStore>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<ActualAttachmentOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(opts.AzureConnectionString))
+    {
+        return new AzureBlobActualAttachmentBlobStore(sp.GetRequiredService<IOptions<ActualAttachmentOptions>>());
+    }
+
+    return new LocalFileActualAttachmentBlobStore(
+        sp.GetRequiredService<IOptions<ActualAttachmentOptions>>(),
+        sp.GetRequiredService<IWebHostEnvironment>());
+});
 
 var authEnabled = builder.Configuration.GetValue<bool>("Auth:Enabled");
 if (!builder.Environment.IsDevelopment() && !authEnabled)

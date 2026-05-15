@@ -26,7 +26,7 @@ interface AppConfigJson {
     url?: string;
     realm?: string;
     clientId?: string;
-    /** Extra console logging for OIDC / token issues (also on when `ng serve` / isDevMode()). */
+    /** Extra console logging for OIDC / token issues (`[MyBudget:Auth]`). */
     debug?: boolean;
   };
 }

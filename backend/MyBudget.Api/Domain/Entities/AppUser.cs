@@ -4,6 +4,7 @@ public class AppUser
 {
     public Guid Id { get; set; }
     public string DisplayName { get; set; } = string.Empty;
+    public string? ColorScheme { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public ICollection<Category> Categories { get; set; } = new List<Category>();

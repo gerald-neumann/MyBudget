@@ -9,6 +9,10 @@ public class ActualEntry
     public decimal Amount { get; set; }
     public string? Note { get; set; }
     public string? ExternalRef { get; set; }
+    /// <summary>Storage key in the configured blob/file backend (not the primary database).</summary>
+    public string? AttachmentBlobKey { get; set; }
+    public string? AttachmentOriginalFileName { get; set; }
+    public string? AttachmentContentType { get; set; }
 
     public BudgetPosition BudgetPosition { get; set; } = default!;
     public Account? Account { get; set; }

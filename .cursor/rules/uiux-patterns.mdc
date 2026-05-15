@@ -15,6 +15,11 @@ Follow the **Budget** page primary action: a **filled violet** button with **`fa
 - **Create** flows may still use a **bottom sheet / centered dialog** when the form is long or multi-field — that matches the budget “new position” sheet and the project inline-editing rule for creates.
 - **Compact creates** (e.g. accounts): a few fields inline above the table is fine; keep the **same primary button** (violet + `fa-circle-plus`) in a **header strip with `border-b`**, not a dashed footer inside the table.
 
+## Keyboard confirm / cancel
+
+- **Enter** = OK / confirm (green check path). **Escape** = cancel (xmark path).
+- Use `core/keyboard-confirm-cancel.ts` and wire handlers on table edit rows and `role="dialog"` roots. Details: `row-confirm-actions` rule.
+
 ## Page sums / totals
 
 Prefer **totals and roll-ups at the end of the main content** for the page (or card), not only in a floating header.

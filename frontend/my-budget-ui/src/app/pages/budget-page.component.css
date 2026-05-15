@@ -43,20 +43,31 @@
   width: 100%;
 }
 
+.budget-table-data,
+.budget-table-summary {
+  /* Match previous floor width; column min-widths can grow the table for legible amounts. */
+  min-width: 780px;
+}
+
 .budget-col-position {
   width: 22%;
+  min-width: 8.5rem;
 }
 
 .budget-col-month {
   width: 4.5%;
+  /* Keep month inputs / sums readable; table grows horizontally when needed. */
+  min-width: 3.25rem;
 }
 
 .budget-col-total {
   width: 12%;
+  min-width: 6.75rem;
 }
 
 .budget-col-action {
-  width: 10%;
+  width: 6%;
+  min-width: 5.5rem;
 }
 
 .app-budget-data-scroll .budget-table > thead th {

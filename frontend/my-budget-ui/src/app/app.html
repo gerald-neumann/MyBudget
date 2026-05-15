@@ -1,10 +1,10 @@
 <div class="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
-  <header class="relative z-30 shrink-0 shadow-md shadow-violet-900/5">
+  <header class="relative z-30 shrink-0 shadow-md [box-shadow:0_6px_18px_var(--app-shadow-color)]">
     <div
-      class="flex w-full flex-col gap-3 border-b border-violet-200/90 bg-white/95 px-3 py-3 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-6 sm:py-4"
+      class="flex w-full flex-col gap-3 border-b px-3 py-3 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-6 sm:py-4 [border-color:var(--app-border)] [background:var(--app-surface)]"
     >
       <div class="min-w-0 shrink-0">
-        <h1 class="text-lg font-semibold text-violet-900 sm:text-xl">{{ t('app.title') }}</h1>
+        <h1 class="text-lg font-semibold sm:text-xl [color:var(--app-text-strong)]">{{ t('app.title') }}</h1>
       </div>
 
       <div
@@ -13,13 +13,13 @@
         <label class="sr-only" for="toolbar-baseline">{{ t('app.sectionBaseline') }}</label>
         <select
           id="toolbar-baseline"
-          class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-sm text-violet-900 sm:min-h-0 sm:w-auto sm:min-w-[12rem] sm:py-1"
+          class="min-h-10 w-full rounded border px-2 py-2 text-sm sm:min-h-0 sm:w-auto sm:min-w-[12rem] sm:py-1 [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
           [ngModel]="state.selectedBaselineId()"
           (ngModelChange)="onToolbarBaselineSelect($event)"
         >
           @for (baseline of state.baselines(); track baseline.id) {
             <option [value]="baseline.id">
-              {{ i18n.translateBaselineDisplayName(baseline.name) }} ({{ baseline.myAccess
+              {{ i18n.translateBaselineDisplayName(baseline.name) }} ({{ i18n.translateBaselineAccessKind(baseline.myAccess)
               }}{{
                 baseline.myAccess === 'Owner' && baseline.isPrimaryBudget ? ', ' + t('app.baselinePrimaryShort') : ''
               }})
@@ -27,26 +27,138 @@
           }
         </select>
 
-        <label class="sr-only" for="toolbar-year">{{ t('app.yearLabel') }}</label>
-        <input
-          id="toolbar-year"
-          class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-right text-sm tabular-nums text-violet-900 sm:min-h-0 sm:w-24 sm:py-1"
-          type="number"
-          [ngModel]="state.selectedYear()"
-          (ngModelChange)="state.selectedYear.set(+$event)"
-          [attr.aria-label]="t('app.yearLabel')"
-        />
+        <div class="flex min-w-0 items-center justify-end gap-1.5 sm:gap-2">
+          <div class="relative shrink-0" (click)="$event.stopPropagation()">
+            <button
+              type="button"
+              class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border sm:h-9 sm:w-9 [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
+              [attr.aria-expanded]="workspaceMenuOpen()"
+              [attr.aria-label]="t('app.workspaceMenuAria')"
+              [attr.aria-controls]="workspaceMenuPanelId"
+              (click)="toggleWorkspaceMenu($event)"
+            >
+              <span class="fa-sharp fa-solid fa-layer-group text-base leading-none sm:text-sm" aria-hidden="true"></span>
+            </button>
+            @if (workspaceMenuOpen()) {
+              <div
+                [id]="workspaceMenuPanelId"
+                class="absolute right-0 z-50 mt-2 w-[min(calc(100vw-1.5rem),18rem)] rounded-lg border p-2 shadow-xl sm:w-72 sm:p-3 [border-color:var(--app-border-soft)] [background-color:var(--app-surface-strong)]"
+                role="region"
+                [attr.aria-label]="t('app.workspaceMenuAria')"
+                (click)="$event.stopPropagation()"
+              >
+                <div class="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-white sm:py-1.5 [background-color:var(--app-accent)] hover:[background-color:var(--app-accent-hover)]"
+                    (click)="openNewBaselineFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-plus leading-none" aria-hidden="true"></span>
+                    {{ t('app.addBaseline') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md bg-sky-400 px-2 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50 sm:py-1.5"
+                    [disabled]="state.selectedBaseline()?.myAccess !== 'Owner'"
+                    (click)="forkFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-code-branch leading-none" aria-hidden="true"></span>
+                    {{ t('app.forkSelected') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                    [disabled]="state.selectedBaseline()?.myAccess !== 'Owner' || state.selectedBaseline()?.isSampleDemo"
+                    (click)="openRenameBaselineFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-pen leading-none" aria-hidden="true"></span>
+                    {{ t('app.renameBaseline') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                    [disabled]="
+                      state.selectedBaseline()?.myAccess !== 'Owner' ||
+                      state.selectedBaseline()?.isPrimaryBudget ||
+                      state.selectedBaseline()?.isSampleDemo
+                    "
+                    (click)="setSelectedBaselineAsDefault()"
+                  >
+                    <span class="fa-sharp fa-solid fa-star leading-none" aria-hidden="true"></span>
+                    {{ t('app.setAsDefaultBaseline') }}
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
 
-        <div class="flex min-w-0 items-center justify-end gap-2">
+          <div class="relative shrink-0" (click)="$event.stopPropagation()">
+            <button
+              type="button"
+              class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border sm:h-9 sm:w-9 [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
+              [attr.aria-expanded]="accessMenuOpen()"
+              [attr.aria-label]="t('app.accessMenuAria')"
+              [attr.aria-controls]="accessMenuPanelId"
+              (click)="toggleAccessMenu($event)"
+            >
+              <span class="fa-sharp fa-solid fa-user-group text-base leading-none sm:text-sm" aria-hidden="true"></span>
+            </button>
+            @if (accessMenuOpen()) {
+              <div
+                [id]="accessMenuPanelId"
+                class="absolute right-0 z-50 mt-2 w-[min(calc(100vw-1.5rem),20rem)] rounded-lg border p-2 shadow-xl sm:w-80 sm:p-3 [border-color:var(--app-border-soft)] [background-color:var(--app-surface-strong)]"
+                role="region"
+                [attr.aria-label]="t('app.accessMenuAria')"
+                (click)="$event.stopPropagation()"
+              >
+                <label class="mb-1 block text-xs font-medium [color:var(--app-text-muted)]" for="access-menu-invite-token">{{
+                  t('app.sectionJoinInvite')
+                }}</label>
+                <input
+                  id="access-menu-invite-token"
+                  class="mb-1.5 min-h-9 w-full rounded border px-2 py-1.5 text-sm [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                  type="text"
+                  [placeholder]="t('app.invitationTokenPlaceholder')"
+                  [(ngModel)]="invitationToken"
+                />
+                <button
+                  type="button"
+                  class="mb-3 inline-flex min-h-9 w-full items-center justify-center rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                  (click)="acceptInvitationFromAccessMenu()"
+                >
+                  {{ t('app.joinBaseline') }}
+                </button>
+                <div class="flex flex-col gap-1.5 border-t pt-2 [border-color:var(--app-border-soft)]">
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)] hover:[background-color:var(--app-surface-muted-strong)]"
+                    (click)="openSharingModalFromAccessMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-user-group leading-none" aria-hidden="true"></span>
+                    {{ t('app.openSharing') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)] hover:[background-color:var(--app-surface-muted-strong)]"
+                    (click)="openSentInvitationsFromAccessMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-paper-plane leading-none" aria-hidden="true"></span>
+                    {{ t('app.openSentInvitations') }}
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+
           @if (currentUserDisplayName()) {
-            <span class="min-w-0 truncate text-right text-sm font-medium text-violet-800 sm:max-w-[14rem]">
+            <span class="min-w-0 max-w-[8rem] truncate text-right text-sm font-medium sm:max-w-[12rem] [color:var(--app-text)]">
               {{ currentUserDisplayName() }}
             </span>
           }
           <div class="relative shrink-0" (click)="$event.stopPropagation()">
             <button
               type="button"
-              class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100 sm:h-9 sm:w-9"
+              class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border sm:h-9 sm:w-9 [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
               [attr.aria-expanded]="userMenuOpen()"
               [attr.aria-label]="t('app.userMenuAria')"
               [attr.aria-controls]="userMenuPanelId"
@@ -58,128 +170,63 @@
             @if (userMenuOpen()) {
               <div
                 [id]="userMenuPanelId"
-                class="absolute right-0 z-50 mt-2 max-h-[min(70dvh,32rem)] w-[min(calc(100vw-1.5rem),20rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-3 shadow-xl sm:max-h-[min(80dvh,36rem)] sm:w-80 sm:p-4"
+                class="absolute right-0 z-50 mt-2 w-[min(calc(100vw-1.5rem),16rem)] rounded-lg border p-2 shadow-xl sm:w-56 sm:p-3 [border-color:var(--app-border-soft)] [background-color:var(--app-surface-strong)]"
                 role="region"
                 [attr.aria-label]="t('app.userMenuAria')"
                 (click)="$event.stopPropagation()"
               >
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-500">
-              {{ t('app.sectionBaseline') }}
-            </p>
-            <div class="mb-4 flex flex-col gap-2">
-              <button
-                type="button"
-                class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:py-1.5"
-                (click)="openNewBaselineFromMenu()"
-              >
-                <span class="fa-sharp fa-solid fa-plus leading-none" aria-hidden="true"></span>
-                {{ t('app.addBaseline') }}
-              </button>
-              <button
-                type="button"
-                class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-sky-400 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
-                [disabled]="state.selectedBaseline()?.myAccess !== 'Owner'"
-                (click)="forkFromMenu()"
-              >
-                <span class="fa-sharp fa-solid fa-code-branch leading-none" aria-hidden="true"></span>
-                {{ t('app.forkSelected') }}
-              </button>
-              <button
-                type="button"
-                class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
-                [disabled]="state.selectedBaseline()?.myAccess !== 'Owner'"
-                (click)="openRenameBaselineFromMenu()"
-              >
-                <span class="fa-sharp fa-solid fa-pen leading-none" aria-hidden="true"></span>
-                {{ t('app.renameBaseline') }}
-              </button>
-              <button
-                type="button"
-                class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5"
-                [disabled]="
-                  state.selectedBaseline()?.myAccess !== 'Owner' ||
-                  state.selectedBaseline()?.isPrimaryBudget ||
-                  state.selectedBaseline()?.isSampleDemo
-                "
-                (click)="setSelectedBaselineAsDefault()"
-              >
-                <span class="fa-sharp fa-solid fa-star leading-none" aria-hidden="true"></span>
-                {{ t('app.setAsDefaultBaseline') }}
-              </button>
-            </div>
-
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-500">{{ t('app.language') }}</p>
-            <label class="sr-only" for="user-menu-lang">{{ t('app.language') }}</label>
-            <select
-              id="user-menu-lang"
-              class="mb-4 min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-sm text-violet-900 sm:min-h-0 sm:py-1.5"
-              [ngModel]="i18n.language()"
-              (ngModelChange)="i18n.setLanguage($event)"
-            >
-              <option value="de">{{ t('app.lang.de') }}</option>
-              <option value="en">{{ t('app.lang.en') }}</option>
-            </select>
-
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-500">
-              {{ t('app.sectionJoinInvite') }}
-            </p>
-            <input
-              class="mb-2 min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-2 py-2 text-sm text-violet-900 sm:min-h-0 sm:py-1.5"
-              type="text"
-              [placeholder]="t('app.invitationTokenPlaceholder')"
-              [(ngModel)]="invitationToken"
-            />
-            <button
-              type="button"
-              class="mb-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-              (click)="acceptInvitationFromMenu()"
-            >
-              {{ t('app.joinBaseline') }}
-            </button>
-
-            <button
-              type="button"
-              class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-900 hover:bg-violet-100 sm:min-h-0 sm:py-1.5"
-              (click)="openSharingModalFromMenu()"
-            >
-              <span class="fa-sharp fa-solid fa-user-group leading-none" aria-hidden="true"></span>
-              {{ t('app.openSharing') }}
-            </button>
-            <button
-              type="button"
-              class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-900 hover:bg-violet-100 sm:min-h-0 sm:py-1.5"
-              (click)="openSentInvitationsFromMenu()"
-            >
-              <span class="fa-sharp fa-solid fa-paper-plane leading-none" aria-hidden="true"></span>
-              {{ t('app.openSentInvitations') }}
-            </button>
-
-            @if (keycloakAuth.usesKeycloakAuth()) {
-              <p class="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-violet-500">
-                {{ t('app.sectionAccount') }}
-              </p>
-              <button
-                type="button"
-                class="mb-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-                (click)="logoutFromMenu()"
-              >
-                <span class="fa-sharp fa-solid fa-right-from-bracket leading-none" aria-hidden="true"></span>
-                {{ t('app.logout') }}
-              </button>
-            }
-
-            <p class="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-violet-500">
-              {{ t('app.sectionHelp') }}
-            </p>
-            <button
-              type="button"
-              class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-              (click)="openHelpFromMenu()"
-            >
-              <span class="fa-sharp fa-solid fa-circle-question leading-none" aria-hidden="true"></span>
-              {{ t('app.openHelp') }}
-            </button>
-          </div>
+                @if (keycloakAuth.usesKeycloakAuth() && sessionValidityText()) {
+                  <div
+                    class="mb-3 flex items-center justify-between gap-2 border-b pb-2 text-xs [border-color:var(--app-border-soft)] [color:var(--app-text-muted)]"
+                  >
+                    <span class="shrink-0">{{ t('app.loginTokenValidity') }}</span>
+                    <span class="font-mono tabular-nums text-sm font-medium [color:var(--app-text-strong)]">{{ sessionValidityText() }}</span>
+                  </div>
+                }
+                <div class="mb-3 flex items-center gap-2">
+                  <label class="shrink-0 text-xs [color:var(--app-text-muted)]" for="user-menu-lang">{{ t('app.language') }}</label>
+                  <select
+                    id="user-menu-lang"
+                    class="min-h-8 min-w-0 flex-1 rounded border px-1.5 py-1 text-sm [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                    [ngModel]="i18n.language()"
+                    (ngModelChange)="i18n.setLanguage($event)"
+                  >
+                    <option value="de">{{ t('app.lang.de') }}</option>
+                    <option value="en">{{ t('app.lang.en') }}</option>
+                  </select>
+                </div>
+                <div class="mb-3 flex flex-col items-start gap-1.5">
+                  <label class="text-xs [color:var(--app-text-muted)]" for="user-menu-theme">{{ t('app.theme') }}</label>
+                  <select
+                    id="user-menu-theme"
+                    class="min-h-8 w-full rounded border px-1.5 py-1 text-sm [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                    [ngModel]="theme.theme()"
+                    (ngModelChange)="theme.setTheme($event)"
+                  >
+                    @for (option of theme.options; track option.id) {
+                      <option [value]="option.id">{{ t(option.labelKey) }}</option>
+                    }
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  class="mb-2 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                  (click)="openHelpFromMenu()"
+                >
+                  <span class="fa-sharp fa-solid fa-circle-question leading-none" aria-hidden="true"></span>
+                  {{ t('app.openHelp') }}
+                </button>
+                @if (keycloakAuth.usesKeycloakAuth()) {
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                    (click)="logoutFromMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-right-from-bracket leading-none" aria-hidden="true"></span>
+                    {{ t('app.logout') }}
+                  </button>
+                }
+              </div>
             }
           </div>
         </div>
@@ -187,35 +234,35 @@
     </div>
 
     <nav
-      class="flex w-full flex-wrap items-center gap-1 border-b border-violet-200/70 bg-gradient-to-b from-violet-100/90 to-violet-50/95 px-3 py-2.5 sm:gap-2 sm:px-6 sm:py-2.5"
+      class="flex w-full flex-wrap items-center gap-1 border-b px-3 py-2.5 sm:gap-2 sm:px-6 sm:py-2.5 [border-color:var(--app-border)] [background:var(--app-nav-bg)]"
       aria-label="Primary"
     >
       <a
         routerLink="/dashboard"
-        routerLinkActive="bg-violet-500 text-white"
+        routerLinkActive="app-nav-link-active text-white"
         [routerLinkActiveOptions]="{ exact: true }"
-        class="min-h-10 rounded px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100 sm:min-h-0 sm:py-1"
+        class="min-h-10 rounded px-3 py-2 text-sm font-medium sm:min-h-0 sm:py-1 [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
       >
         {{ t('app.dashboard') }}
       </a>
       <a
         routerLink="/budget"
-        routerLinkActive="bg-violet-500 text-white"
-        class="min-h-10 rounded px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100 sm:min-h-0 sm:py-1"
+        routerLinkActive="app-nav-link-active text-white"
+        class="min-h-10 rounded px-3 py-2 text-sm font-medium sm:min-h-0 sm:py-1 [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
       >
         {{ t('app.nav.budgets') }}
       </a>
       <a
         routerLink="/actuals"
-        routerLinkActive="bg-violet-500 text-white"
-        class="min-h-10 rounded px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100 sm:min-h-0 sm:py-1"
+        routerLinkActive="app-nav-link-active text-white"
+        class="min-h-10 rounded px-3 py-2 text-sm font-medium sm:min-h-0 sm:py-1 [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
       >
         {{ t('app.nav.actuals') }}
       </a>
       <a
         routerLink="/accounts"
-        routerLinkActive="bg-violet-500 text-white"
-        class="min-h-10 rounded px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100 sm:min-h-0 sm:py-1"
+        routerLinkActive="app-nav-link-active text-white"
+        class="min-h-10 rounded px-3 py-2 text-sm font-medium sm:min-h-0 sm:py-1 [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
       >
         {{ t('app.accounts') }}
       </a>
@@ -223,18 +270,38 @@
   </header>
 
   <main
-    class="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6"
+    class="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6"
   >
-    @if (routeOutletMounted()) {
+    @if (state.isSampleBaselineSelected() && !shellBootstrapLoading()) {
+      <div class="sample-demo-watermark" aria-hidden="true">
+        @for (tile of sampleWatermarkTiles; track tile) {
+          <span class="sample-demo-watermark__tile">{{ t('app.sampleWatermark') }}</span>
+        }
+      </div>
+      <p class="sr-only">{{ t('app.sampleWatermarkHint') }}</p>
+    }
+    @if (shellBootstrapLoading()) {
+      <div
+        class="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-3 py-12 [color:var(--app-text)]"
+        role="status"
+        aria-live="polite"
+      >
+        <span
+          class="fa-sharp fa-solid fa-spinner text-3xl leading-none motion-safe:animate-spin [color:var(--app-accent)]"
+          aria-hidden="true"
+        ></span>
+        <p class="text-center text-sm [color:var(--app-text)]">{{ t('app.shellLoading') }}</p>
+      </div>
+    } @else if (routeOutletMounted()) {
       <router-outlet />
     }
   </main>
 
   <footer
-    class="mt-auto shrink-0 border-t border-violet-100/80 px-3 py-2 text-center sm:px-6"
+    class="mt-auto shrink-0 border-t px-3 py-2 text-center sm:px-6 [border-color:var(--app-border-soft)]"
     [attr.aria-label]="t('app.buildVersionAria')"
   >
-    <span class="inline-block max-w-full text-xs leading-snug text-violet-400">
+    <span class="inline-block max-w-full text-xs leading-snug [color:var(--app-text-subtle)]">
       <span class="tabular-nums">v{{ appVersion }}</span>
       <span class="tabular-nums"> · {{ t('app.footerUiBuild') }} {{ appBuildTimestampUtc | date: 'medium' : 'UTC' }}</span>
       @if (apiBuildInfo(); as api) {
@@ -253,7 +320,7 @@
   @if (newBaselineModalOpen) {
     <div
       class="fixed inset-0 z-50 flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
-      (click)="closeNewBaselineModal()"
+      (click)="tryCloseNewBaselineModal()"
       role="presentation"
     >
       <div
@@ -262,6 +329,9 @@
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="t('app.newBaselineModalTitle')"
+        tabindex="-1"
+        (keydown.escape)="onNewBaselineModalEscapeCancel($event)"
+        (keydown.enter)="onNewBaselineModalEnterConfirm($event)"
       >
         <h2 class="text-lg font-semibold text-violet-900">{{ t('app.newBaselineModalTitle') }}</h2>
         <input
@@ -269,15 +339,13 @@
           [(ngModel)]="newBaselineModalName"
           [attr.aria-label]="t('app.newBaselinePlaceholder')"
           [placeholder]="t('app.newBaselinePlaceholder')"
-          (keydown.escape)="closeNewBaselineModal()"
-          (keydown.enter)="confirmNewBaseline()"
           autofocus
         />
         <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-            (click)="closeNewBaselineModal()"
+            (click)="tryCloseNewBaselineModal()"
           >
             <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
             {{ t('app.cancel') }}
@@ -298,7 +366,7 @@
   @if (renameBaselineModalOpen) {
     <div
       class="fixed inset-0 z-50 flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
-      (click)="closeRenameBaselineModal()"
+      (click)="tryCloseRenameBaselineModal()"
       role="presentation"
     >
       <div
@@ -307,7 +375,8 @@
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="t('app.renameBaselineModalTitle')"
-        (keydown.escape)="closeRenameBaselineModal()"
+        (keydown.escape)="onRenameBaselineModalEscapeCancel($event)"
+        (keydown.enter)="onRenameBaselineModalEnterConfirm($event)"
         tabindex="-1"
       >
         <h2 class="text-lg font-semibold text-violet-900">{{ t('app.renameBaselineModalTitle') }}</h2>
@@ -319,22 +388,25 @@
           [(ngModel)]="renameBaselineName"
           [attr.aria-label]="t('app.newBaselinePlaceholder')"
           [placeholder]="t('app.newBaselinePlaceholder')"
-          (keydown.enter)="saveRenamedBaseline()"
         />
-        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div class="mt-5 inline-flex w-full items-center justify-end gap-1 sm:w-auto">
           <button
             type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
-            (click)="closeRenameBaselineModal()"
+            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition hover:border-violet-300 hover:bg-violet-50"
+            (click)="tryCloseRenameBaselineModal()"
+            [attr.aria-label]="t('app.cancel')"
+            [attr.title]="t('app.cancel')"
           >
-            {{ t('app.cancel') }}
+            <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
           </button>
           <button
             type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:py-1.5"
+            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 transition hover:border-emerald-400 hover:bg-emerald-100"
             (click)="saveRenamedBaseline()"
+            [attr.aria-label]="t('budget.confirmEntry')"
+            [attr.title]="t('budget.confirmEntry')"
           >
-            {{ t('app.save') }}
+            <span class="fa-sharp fa-solid fa-check text-base leading-none" aria-hidden="true"></span>
           </button>
         </div>
       </div>
@@ -350,7 +422,7 @@
       <div
         class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-lg max-h-[min(90dvh,42rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-4 shadow-xl sm:mb-0 sm:p-5"
         (click)="$event.stopPropagation()"
-        (keydown.escape)="closeSentInvitationsModal()"
+        (keydown.escape)="onSentInvitationsModalEscapeCancel($event)"
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="t('app.sentInvitationsModalTitle')"
@@ -378,7 +450,7 @@
               <li class="rounded border border-violet-100 bg-violet-50/50 p-3">
                 <div class="font-medium">{{ i18n.translateBaselineDisplayName(inv.baselineName) }}</div>
                 <div class="mt-1 text-xs text-violet-700">
-                  {{ t('app.sentInvitationsRole') }}: {{ inv.role }} · {{ t('app.sentInvitationsStatus') }}:
+                  {{ t('app.sentInvitationsRole') }}: {{ i18n.translateBaselineAccessKind(inv.role) }} · {{ t('app.sentInvitationsStatus') }}:
                   {{ t(inviteStatusLabelKey(inv)) }}
                   @if (inviteEffectiveStatus(inv) === 'accepted') {
                     — {{ inv.acceptedByDisplayName?.trim() || inv.acceptedByUserId || '—' }}
@@ -411,7 +483,8 @@
       <div
         class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-lg max-h-[min(90dvh,42rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-4 shadow-xl sm:mb-0 sm:p-5"
         (click)="$event.stopPropagation()"
-        (keydown.escape)="closeSharingModal()"
+        (keydown.escape)="onSharingModalEscapeCancel($event)"
+        (keydown.enter)="onSharingModalEnterConfirm($event)"
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="t('app.sharingModalTitle')"
@@ -499,7 +572,7 @@
                 <p class="mb-1 font-semibold">{{ t('app.sharingInvitations') }}</p>
                 @for (invitation of invitations; track invitation.id) {
                   <div class="mb-2 flex flex-wrap items-center gap-2 border-b border-violet-100 pb-2 last:mb-0 last:border-b-0 last:pb-0">
-                    <span>{{ invitation.role }}</span>
+                    <span>{{ i18n.translateBaselineAccessKind(invitation.role) }}</span>
                     <span>{{ t(inviteStatusLabelKey(invitation)) }}</span>
                     @if (inviteEffectiveStatus(invitation) === 'accepted') {
                       <span class="text-violet-600">{{
@@ -522,6 +595,44 @@
             }
           </div>
         }
+      </div>
+    </div>
+  }
+
+  @if (sessionExpiredUi.modalOpen()) {
+    <div
+      class="fixed inset-0 z-[80] flex items-end justify-center bg-violet-950/50 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
+      (click)="closeSessionExpiredModal()"
+      role="presentation"
+    >
+      <div
+        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-md rounded-xl border border-amber-200 bg-white p-4 shadow-xl sm:mb-0 sm:p-5"
+        (click)="$event.stopPropagation()"
+        role="dialog"
+        aria-modal="true"
+        [attr.aria-label]="t('app.sessionExpiredTitle')"
+        tabindex="-1"
+        (keydown.escape)="onSessionExpiredModalEscapeCancel($event)"
+        (keydown.enter)="onSessionExpiredModalEnterConfirm($event)"
+      >
+        <h2 class="text-lg font-semibold text-violet-900">{{ t('app.sessionExpiredTitle') }}</h2>
+        <p class="mt-3 text-sm text-violet-800">{{ t('app.sessionExpiredBody') }}</p>
+        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:w-auto sm:py-1.5"
+            (click)="closeSessionExpiredModal()"
+          >
+            {{ t('app.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:w-auto sm:py-1.5"
+            (click)="onSessionExpiredSignInAgain()"
+          >
+            {{ t('app.sessionExpiredSignIn') }}
+          </button>
+        </div>
       </div>
     </div>
   }

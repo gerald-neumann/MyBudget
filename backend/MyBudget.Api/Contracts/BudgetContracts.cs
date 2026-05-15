@@ -69,9 +69,13 @@ public record ActualEntryDto(
     DateOnly BookedOn,
     decimal Amount,
     string? Note,
-    string? ExternalRef);
+    string? ExternalRef,
+    bool HasAttachment,
+    string? AttachmentFileName);
 
 public record ActualEntriesPageDto(IReadOnlyList<ActualEntryDto> Items, int TotalCount);
+
+public record ActualBookingYearsDto(IReadOnlyList<int> Years);
 
 public record CreateActualEntryRequest(
     Guid BudgetPositionId,

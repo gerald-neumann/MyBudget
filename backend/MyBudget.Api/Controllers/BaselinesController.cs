@@ -145,6 +145,11 @@ public class BaselinesController(
             return BadRequest("At least one of name, status, or isPrimaryBudget is required.");
         }
 
+        if (baseline.IsSampleDemo && (request.Name is not null || request.Status is not null))
+        {
+            return BadRequest("The sample workspace is read-only.");
+        }
+
         if (request.Name is not null)
         {
             var name = request.Name.Trim();
@@ -221,6 +226,11 @@ public class BaselinesController(
         }
 
         var baseline = await dbContext.Baselines.FirstAsync(x => x.Id == id, cancellationToken);
+        if (baseline.IsSampleDemo)
+        {
+            return BadRequest("The sample workspace cannot be deleted.");
+        }
+
         var ownerId = baseline.UserId;
         var ownedCount = await dbContext.Baselines.CountAsync(x => x.UserId == ownerId, cancellationToken);
 

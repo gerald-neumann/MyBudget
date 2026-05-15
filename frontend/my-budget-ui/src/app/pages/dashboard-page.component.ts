@@ -1,14 +1,23 @@
 import { CommonModule } from '@angular/common';
-import { Component, DestroyRef, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, effect, inject, NgZone, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { BaseChartDirective } from 'ng2-charts';
-import { ChartConfiguration } from 'chart.js';
+import { ActiveElement, ChartConfiguration, Plugin } from 'chart.js';
 import { forkJoin, Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
-import { BaselineComparisonPoint, CategoryMonthlySpendSeries, MonthlyCashflowPoint } from '../core/budget.models';
+import {
+  BaselineComparisonPoint,
+  CategoryMonthlySpendSeries,
+  CategorySummaryPoint,
+  MonthlyCashflowPoint
+} from '../core/budget.models';
 import { I18nService } from '../core/i18n.service';
+import { buildSpendingsDrillDownQuery } from '../core/spendings-drill-down';
+
+type ChartHitHandler = (hit: ActiveElement) => void;
 
 @Component({
   selector: 'app-dashboard-page',
@@ -20,7 +29,31 @@ export class DashboardPageComponent {
   private readonly api = inject(BudgetApiService);
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
+  private readonly router = inject(Router);
+  private readonly ngZone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+
+  yearToolbarLabelClasses(): string {
+    return this.state.isSelectedYearOffCalendar()
+      ? 'select-none inline-flex items-center gap-1 text-sm font-semibold text-amber-900'
+      : 'select-none text-sm font-medium text-violet-700';
+  }
+
+  yearToolbarInputClasses(): string {
+    const base =
+      'min-h-10 w-full rounded border px-2 py-2 text-right text-sm tabular-nums transition-colors sm:min-h-0 sm:w-24 sm:py-1';
+    if (this.state.isSelectedYearOffCalendar()) {
+      return `${base} border-amber-400 bg-amber-50 font-semibold text-amber-950 shadow-sm ring-2 ring-amber-200`;
+    }
+    return `${base} border-violet-200 bg-violet-50 text-violet-900`;
+  }
+
+  cashflowChartPlugins: Plugin[] = [];
+  expenseStackChartPlugins: Plugin[] = [];
+  categoryChartPlugins: Plugin[] = [];
+
+  private expenseStackSeries: CategoryMonthlySpendSeries[] = [];
+  private categorySummaryRows: CategorySummaryPoint[] = [];
 
   /** Signal so chart forkJoin completion always updates the template. */
   readonly loading = signal(false);
@@ -55,12 +88,14 @@ export class DashboardPageComponent {
 
   yearlyChartData: ChartConfiguration<'bar'>['data'] = { labels: [], datasets: [] };
   categoryChartData: ChartConfiguration<'bar'>['data'] = { labels: [], datasets: [] };
+  categoryChartOptions: ChartConfiguration<'bar'>['options'] = {};
 
   barChartOptions: ChartConfiguration<'bar'>['options'] = {
     responsive: true,
     maintainAspectRatio: false,
     indexAxis: 'y',
     layout: { padding: 6 },
+    interaction: { mode: 'nearest', intersect: true },
     plugins: {
       legend: {
         labels: { boxWidth: 10, padding: 6, font: { size: 10 } }
@@ -155,6 +190,7 @@ export class DashboardPageComponent {
         this.applyCashflowCharts(months);
         this.applyExpenseStackChart(response.cashflow.expenseSeries);
 
+        this.categorySummaryRows = response.category;
         this.yearlyChartData = {
           labels: response.yearly.map((item) => `${item.year}`),
           datasets: [
@@ -170,6 +206,10 @@ export class DashboardPageComponent {
             { label: this.t('dashboard.actual'), data: response.category.map((item) => item.actual), backgroundColor: '#0e7490' }
           ]
         };
+        this.categoryChartOptions = { ...this.barChartOptions };
+        this.categoryChartPlugins = [
+          this.spendingsDrillDownPlugin('category', (hit) => this.onCategoryChartClick(hit))
+        ];
 
         this.chartDataReady.set(true);
       },
@@ -229,13 +269,15 @@ export class DashboardPageComponent {
       responsive: true,
       maintainAspectRatio: false,
       layout: { padding: 6 },
-      interaction: { mode: 'index', intersect: false },
+      interaction: { mode: 'nearest', intersect: true },
       plugins: {
         legend: {
           position: 'top',
           labels: { boxWidth: 10, padding: 6, font: { size: 10 } }
         },
         tooltip: {
+          mode: 'index',
+          intersect: false,
           callbacks: {
             label: (ctx) => {
               const v = Number(ctx.raw);
@@ -258,9 +300,13 @@ export class DashboardPageComponent {
         }
       }
     };
+    this.cashflowChartPlugins = [
+      this.spendingsDrillDownPlugin('cashflow', (hit) => this.onCashflowChartClick(hit))
+    ];
   }
 
   private applyExpenseStackChart(series: CategoryMonthlySpendSeries[]): void {
+    this.expenseStackSeries = series;
     const labels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => this.t(`monthShort.${m}`));
 
     this.expenseStackChartData = {
@@ -278,13 +324,15 @@ export class DashboardPageComponent {
       responsive: true,
       maintainAspectRatio: false,
       layout: { padding: 6 },
-      interaction: { mode: 'index', intersect: false },
+      interaction: { mode: 'nearest', intersect: true },
       plugins: {
         legend: {
           position: 'bottom',
           labels: { boxWidth: 8, padding: 4, font: { size: 9 } }
         },
         tooltip: {
+          mode: 'index',
+          intersect: false,
           filter: (item) => Number(item.raw) !== 0,
           callbacks: {
             label: (ctx) => {
@@ -309,11 +357,106 @@ export class DashboardPageComponent {
         }
       }
     };
+    this.expenseStackChartPlugins = [
+      this.spendingsDrillDownPlugin('expense-stack', (hit) => this.onExpenseStackChartClick(hit))
+    ];
   }
 
   private categoryColor(index: number): string {
     const hue = (index * 41 + 12) % 360;
     return `hsla(${hue}, 58%, 48%, 0.88)`;
+  }
+
+  private spendingsDrillDownPlugin(id: string, onHit: ChartHitHandler): Plugin {
+    return {
+      id: `spendingsDrillDown-${id}`,
+      afterEvent: (chart, args) => {
+        const event = args.event;
+        const native = event.native;
+        if (event.type === 'mousemove' || event.type === 'mouseout') {
+          const hits =
+            !native || event.type === 'mouseout'
+              ? []
+              : chart.getElementsAtEventForMode(native, 'nearest', { intersect: true }, false);
+          chart.canvas.style.cursor = hits.length > 0 ? 'pointer' : 'default';
+          return;
+        }
+        if (event.type !== 'click' || !native) {
+          return;
+        }
+        const hits = chart.getElementsAtEventForMode(native, 'nearest', { intersect: true }, false);
+        if (hits.length === 0) {
+          return;
+        }
+        this.ngZone.run(() => onHit(hits[0]));
+      }
+    };
+  }
+
+  private navigateToSpendingsDrillDown(drill: Parameters<typeof buildSpendingsDrillDownQuery>[0]): void {
+    void this.router.navigate(['/actuals'], {
+      queryParams: buildSpendingsDrillDownQuery(drill),
+      queryParamsHandling: 'replace'
+    });
+  }
+
+  private segmentHasValue(value: number): boolean {
+    return Number.isFinite(value) && Math.abs(value) > 0;
+  }
+
+  private onCashflowChartClick(hit: ActiveElement): void {
+    const value = Number(this.cashflowChartData.datasets?.[hit.datasetIndex]?.data?.[hit.index]);
+    if (!this.segmentHasValue(value)) {
+      return;
+    }
+
+    const year = this.state.selectedYear();
+    const month = hit.index + 1;
+    if (hit.datasetIndex === 0) {
+      this.navigateToSpendingsDrillDown({ flow: 'income', year, month });
+      return;
+    }
+    if (hit.datasetIndex === 1) {
+      this.navigateToSpendingsDrillDown({ flow: 'expense', year, month });
+    }
+  }
+
+  private onExpenseStackChartClick(hit: ActiveElement): void {
+    const series = this.expenseStackSeries[hit.datasetIndex];
+    if (!series) {
+      return;
+    }
+    const value = Number(series.monthlyActuals[hit.index]);
+    if (!this.segmentHasValue(value)) {
+      return;
+    }
+
+    const year = this.state.selectedYear();
+    const month = hit.index + 1;
+    this.navigateToSpendingsDrillDown({
+      flow: 'expense',
+      year,
+      month,
+      ...(series.categoryId ? { categoryId: series.categoryId } : {})
+    });
+  }
+
+  private onCategoryChartClick(hit: ActiveElement): void {
+    const row = this.categorySummaryRows[hit.index];
+    if (!row) {
+      return;
+    }
+    const dataset = this.categoryChartData.datasets?.[hit.datasetIndex];
+    const value = Number(dataset?.data?.[hit.index]);
+    if (!this.segmentHasValue(value)) {
+      return;
+    }
+
+    this.navigateToSpendingsDrillDown({
+      flow: 'expense',
+      year: this.state.selectedYear(),
+      categoryId: row.categoryId
+    });
   }
 
   private formatEur(value: number): string {

@@ -12,6 +12,7 @@ describe('App', () => {
   const apiBase = 'http://localhost:5256';
 
   beforeEach(async () => {
+    localStorage.removeItem('mybudget.theme');
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
@@ -32,7 +33,7 @@ describe('App', () => {
   function flushShellBootstrap(): void {
     httpMock.expectOne(`${apiBase}/build-info`).flush({ version: '1.0.0', buildTimestampUtc: '2020-01-01T00:00:00.000Z' });
     httpMock.expectOne(`${apiBase}/baselines`).flush([]);
-    httpMock.expectOne(`${apiBase}/me`).flush({ userId: 't', displayName: 'Tester' });
+    httpMock.expectOne(`${apiBase}/me`).flush({ userId: 't', displayName: 'Tester', colorScheme: 'denim' });
   }
 
   it('should create the app', () => {
@@ -40,6 +41,7 @@ describe('App', () => {
     flushShellBootstrap();
     const app = fixture.componentInstance;
     expect(app).toBeTruthy();
+    expect(document.documentElement.getAttribute('data-app-theme')).toBe('denim');
   });
 
   it('should render title', async () => {

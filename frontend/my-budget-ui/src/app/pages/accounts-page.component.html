@@ -16,6 +16,11 @@
       <p class="mt-1 text-sm text-violet-600">{{ t('accounts.subtitle') }}</p>
 
       <div class="mt-4 flex min-w-0 flex-col gap-3 border-b border-violet-100 pb-3">
+        @if (state.isSampleBaselineSelected()) {
+          <span class="self-start rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+            {{ t('app.readOnlyBadge') }}
+          </span>
+        }
         <button
           type="button"
           class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded bg-violet-500 px-3 py-2 text-xs font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-sm"
@@ -42,7 +47,7 @@
               <th class="px-2 py-2 text-left">{{ t('accounts.type') }}</th>
               <th class="px-2 py-2 text-right">{{ t('accounts.initialBalance') }}</th>
               <th class="px-2 py-2 text-right">{{ t('accounts.currentBalance') }}</th>
-              <th class="px-2 py-2 text-left">{{ t('accounts.actions') }}</th>
+              <th class="min-w-0 px-2 py-2 text-right" aria-hidden="true"></th>
             </tr>
           </thead>
           <tbody>
@@ -50,11 +55,12 @@
               <tr
                 class="border-t border-violet-100 accounts-row-editing"
                 [class.opacity-60]="savingNewAccount()"
+                (keydown.enter)="onAccountsTableRowEnterConfirm($event)"
+                (keydown.escape)="onAccountsTableRowEscapeCancel($event)"
               >
                 <td class="min-w-0 px-2 py-2">
                   <input
                     [(ngModel)]="newAccount.name"
-                    (blur)="tryCommitNewAccountOnBlur()"
                     [disabled]="savingNewAccount()"
                     class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-2 py-1 text-xs text-violet-900 sm:text-sm"
                     [placeholder]="t('accounts.namePlaceholder')"
@@ -63,7 +69,6 @@
                 <td class="min-w-0 px-2 py-2">
                   <input
                     [(ngModel)]="newAccount.typeLabel"
-                    (blur)="tryCommitNewAccountOnBlur()"
                     [disabled]="savingNewAccount()"
                     class="min-h-9 w-full max-w-full rounded border border-violet-300 bg-white px-2 py-1 text-xs text-violet-900 sm:text-sm"
                     [placeholder]="t('accounts.typePlaceholder')"
@@ -84,21 +89,39 @@
                   />
                 </td>
                 <td class="px-2 py-2 text-right tabular-nums text-violet-500">—</td>
-                <td class="min-w-0 whitespace-nowrap px-2 py-2 align-middle">
-                  <button
-                    type="button"
-                    class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition hover:border-violet-300 hover:bg-violet-50"
-                    (click)="cancelNewAccountRow($event)"
-                    [disabled]="savingNewAccount()"
-                    [attr.aria-label]="t('app.cancel')"
-                  >
-                    <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
-                  </button>
+                <td class="min-w-0 whitespace-nowrap px-2 py-2 align-middle text-right">
+                  <div class="app-table-row-actions">
+                    <button
+                      type="button"
+                      class="app-table-icon-btn app-table-icon-btn--confirm"
+                      (click)="confirmNewAccountRow($event)"
+                      [disabled]="savingNewAccount()"
+                      [attr.aria-label]="t('budget.confirmEntry')"
+                      [attr.title]="t('budget.confirmEntry')"
+                    >
+                      <span class="fa-sharp fa-solid fa-check text-base leading-none" aria-hidden="true"></span>
+                    </button>
+                    <button
+                      type="button"
+                      class="app-table-icon-btn app-table-icon-btn--cancel"
+                      (click)="cancelNewAccountRow($event)"
+                      [disabled]="savingNewAccount()"
+                      [attr.aria-label]="t('app.cancel')"
+                      [attr.title]="t('app.cancel')"
+                    >
+                      <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
+                    </button>
+                  </div>
                 </td>
               </tr>
             }
             @for (row of accounts; track row.id) {
-              <tr class="border-t border-violet-100 hover:bg-violet-50/60">
+              <tr
+                class="border-t border-violet-100 hover:bg-violet-50/60"
+                (keydown.enter)="onAccountsTableRowEnterConfirm($event, row)"
+                (keydown.escape)="onAccountsTableRowEscapeCancel($event, row)"
+                (click)="onAccountDisplayRowClick($event, row)"
+              >
                 @if (editingId === row.id) {
                   <td class="px-2 py-2">
                     <input [(ngModel)]="editName" class="w-full rounded border border-violet-200 bg-white px-2 py-1 text-sm" />
@@ -117,14 +140,28 @@
                       (blur)="onEditInitialBlur()"
                     />
                   </td>
-                  <td class="px-2 py-2 text-right tabular-nums text-violet-500">—</td>
-                  <td class="px-2 py-2">
-                    <div class="flex flex-wrap gap-2">
-                      <button type="button" class="rounded bg-violet-500 px-2 py-1 text-xs text-white hover:bg-violet-600" (click)="saveEdit()">
-                        {{ t('app.save') }}
+                  <td class="px-2 py-2 text-right tabular-nums font-medium" [ngClass]="i18n.signedAmountTextClass(row.currentBalance)">
+                    {{ i18n.formatSignedAmount(row.currentBalance) }}
+                  </td>
+                  <td class="px-2 py-2 text-right">
+                    <div class="app-table-row-actions">
+                      <button
+                        type="button"
+                        class="app-table-icon-btn app-table-icon-btn--confirm"
+                        (click)="saveEdit()"
+                        [attr.aria-label]="t('budget.confirmEntry')"
+                        [attr.title]="t('budget.confirmEntry')"
+                      >
+                        <span class="fa-sharp fa-solid fa-check text-base leading-none" aria-hidden="true"></span>
                       </button>
-                      <button type="button" class="rounded border border-violet-200 px-2 py-1 text-xs text-violet-800 hover:bg-violet-50" (click)="cancelEdit()">
-                        {{ t('app.cancel') }}
+                      <button
+                        type="button"
+                        class="app-table-icon-btn app-table-icon-btn--cancel"
+                        (click)="cancelEdit()"
+                        [attr.aria-label]="t('app.cancel')"
+                        [attr.title]="t('app.cancel')"
+                      >
+                        <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
                       </button>
                     </div>
                   </td>
@@ -137,23 +174,27 @@
                   <td class="px-2 py-2 text-right tabular-nums font-medium" [ngClass]="i18n.signedAmountTextClass(row.currentBalance)">
                     {{ i18n.formatSignedAmount(row.currentBalance) }}
                   </td>
-                  <td class="px-2 py-2">
-                    <div class="flex flex-wrap gap-2">
+                  <td class="min-w-0 whitespace-nowrap px-2 py-2 text-right">
+                    <div class="app-table-row-actions">
                       <button
                         type="button"
-                        class="rounded border border-violet-200 px-2 py-1 text-xs text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        class="app-table-icon-btn app-table-icon-btn--edit"
                         [disabled]="savingNewAccount() || !canManageAccounts()"
-                        (click)="startEdit(row)"
+                        (click)="startEdit(row); $event.stopPropagation()"
+                        [attr.aria-label]="t('budget.barEdit')"
+                        [attr.title]="t('budget.barEdit')"
                       >
-                        {{ t('budget.barEdit') }}
+                        <span class="fa-sharp fa-solid fa-pen-to-square text-base leading-none" aria-hidden="true"></span>
                       </button>
                       <button
                         type="button"
-                        class="rounded border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        class="app-table-icon-btn app-table-icon-btn--delete"
                         [disabled]="savingNewAccount() || !canManageAccounts()"
-                        (click)="deleteAccount(row)"
+                        (click)="deleteAccount(row); $event.stopPropagation()"
+                        [attr.aria-label]="t('budget.delete')"
+                        [attr.title]="t('budget.delete')"
                       >
-                        {{ t('budget.delete') }}
+                        <span class="fa-sharp fa-solid fa-trash-can text-base leading-none" aria-hidden="true"></span>
                       </button>
                     </div>
                   </td>

@@ -3,9 +3,10 @@ using MyBudget.Api.Domain.Enums;
 
 namespace MyBudget.Api.Infrastructure;
 
-public sealed record BaselineAccessResult(Guid BaselineId, Guid OwnerUserId, BaselineAccessKind AccessKind)
+public sealed record BaselineAccessResult(Guid BaselineId, Guid OwnerUserId, BaselineAccessKind AccessKind, bool IsSampleDemo)
 {
     public bool CanRead => AccessKind is BaselineAccessKind.Owner or BaselineAccessKind.Editor or BaselineAccessKind.Viewer;
+    /// <summary>Owners and editors may change budget data; sample demo baselines use the same rules so users can try the app.</summary>
     public bool CanManageBudget => AccessKind is BaselineAccessKind.Owner or BaselineAccessKind.Editor;
     public bool IsOwner => AccessKind == BaselineAccessKind.Owner;
 }
@@ -25,6 +26,7 @@ public class BaselineAccessService(BudgetDbContext dbContext) : IBaselineAccessS
             {
                 x.Id,
                 OwnerUserId = x.UserId,
+                x.IsSampleDemo,
                 MemberRole = x.Members
                     .Where(m => m.UserId == userId)
                     .Select(m => (BaselineAccessRole?)m.Role)
@@ -39,7 +41,7 @@ public class BaselineAccessService(BudgetDbContext dbContext) : IBaselineAccessS
 
         if (row.OwnerUserId == userId)
         {
-            return new BaselineAccessResult(row.Id, row.OwnerUserId, BaselineAccessKind.Owner);
+            return new BaselineAccessResult(row.Id, row.OwnerUserId, BaselineAccessKind.Owner, row.IsSampleDemo);
         }
 
         var accessKind = row.MemberRole switch
@@ -49,6 +51,6 @@ public class BaselineAccessService(BudgetDbContext dbContext) : IBaselineAccessS
             _ => BaselineAccessKind.None
         };
 
-        return new BaselineAccessResult(row.Id, row.OwnerUserId, accessKind);
+        return new BaselineAccessResult(row.Id, row.OwnerUserId, accessKind, row.IsSampleDemo);
     }
 }

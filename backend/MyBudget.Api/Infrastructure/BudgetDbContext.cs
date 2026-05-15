@@ -21,6 +21,7 @@ public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbCont
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.DisplayName).HasMaxLength(200);
+            entity.Property(x => x.ColorScheme).HasMaxLength(32);
         });
 
         modelBuilder.Entity<Category>(entity =>
@@ -82,6 +83,9 @@ public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbCont
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Note).HasMaxLength(500);
             entity.Property(x => x.ExternalRef).HasMaxLength(120);
+            entity.Property(x => x.AttachmentBlobKey).HasMaxLength(512);
+            entity.Property(x => x.AttachmentOriginalFileName).HasMaxLength(260);
+            entity.Property(x => x.AttachmentContentType).HasMaxLength(128);
             entity.HasIndex(x => x.AccountId);
             entity.HasOne(x => x.BudgetPosition).WithMany(x => x.ActualEntries).HasForeignKey(x => x.BudgetPositionId);
             entity.HasOne(x => x.Account).WithMany(x => x.ActualEntries).HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);

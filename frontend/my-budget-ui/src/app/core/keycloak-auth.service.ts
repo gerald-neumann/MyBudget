@@ -1,4 +1,4 @@
-import { Injectable, isDevMode } from '@angular/core';
+import { Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import Keycloak, { KeycloakLoginOptions } from 'keycloak-js';
 
@@ -202,9 +202,6 @@ export class KeycloakAuthService {
       kc.onAuthRefreshError = () => {
         authDebugLog('[Keycloak] onAuthRefreshError');
       };
-    } else if (isDevMode()) {
-      kc.onAuthSuccess = () => console.info('[Keycloak] session established');
-      kc.onAuthError = (d) => console.error('[Keycloak] auth error', d);
     }
 
     let initAuthenticated = false;
@@ -273,34 +270,58 @@ export class KeycloakAuthService {
     return this.keycloak?.token;
   }
 
+  /** Unix seconds when the in-memory access token expires (`exp` claim), if parsed. */
+  getAccessTokenExpiryEpochSec(): number | undefined {
+    const exp = this.keycloak?.tokenParsed?.exp;
+    return typeof exp === 'number' ? exp : undefined;
+  }
+
   /**
-   * ReSpecT-style: return in-memory token if present; otherwise one `updateToken(0)` (e.g. right after redirect).
-   * Does not refresh on every API call — avoids stalls and re-login loops from failed refresh.
+   * Ensures the access token is valid before attaching it to API calls.
+   * `updateToken(minValidity)` is cheap when the token is still fresh (no network); when it is expired or
+   * expires within the window, Keycloak refreshes it. Without this, an in-memory JWT past `exp` is still sent
+   * and the API rejects it (`ValidateLifetime` + zero clock skew).
    */
   async getTokenForRequest(): Promise<string | undefined> {
+    if (!this.usesKeycloakAuth()) {
+      return undefined;
+    }
     const kc = this.keycloak;
     if (!kc) {
-      authDebugLog('getTokenForRequest: no Keycloak instance');
+      authDebugLog('getTokenForRequest: no Keycloak instance (init not finished or failed)');
       return undefined;
     }
     if (!kc.authenticated) {
       return undefined;
     }
-    let token = kc.token;
-    if (token) {
-      this.tryLogAccessTokenOnce('getTokenForRequest');
-      return token;
-    }
     try {
-      await kc.updateToken(0);
+      await kc.updateToken(70);
     } catch {
-      authDebugLog('getTokenForRequest: updateToken(0) failed (no refresh token?)');
+      authDebugLog('getTokenForRequest: updateToken failed (session expired or no refresh token?)');
       return undefined;
     }
     if (kc.token) {
-      this.tryLogAccessTokenOnce('getTokenForRequest-after-update');
+      this.tryLogAccessTokenOnce('getTokenForRequest');
     }
     return kc.token;
+  }
+
+  /**
+   * Used after an API 401: try to obtain a fresh access token even if Keycloak still thinks the current one
+   * has plenty of lifetime left (clock skew, rotation, or stale in-memory JWT vs. validation on the server).
+   */
+  async refreshTokenAfterUnauthorized(): Promise<boolean> {
+    const kc = this.keycloak;
+    if (!kc?.authenticated) {
+      return false;
+    }
+    try {
+      await kc.updateToken(86_400);
+    } catch {
+      authDebugLog('refreshTokenAfterUnauthorized: updateToken failed');
+      return false;
+    }
+    return !!kc.token;
   }
 
   /**
@@ -321,7 +342,7 @@ export class KeycloakAuthService {
   }
 
   /**
-   * When `keycloak.debug` in config.json or `ng serve`: logs parsed claims once, then the raw access JWT
+   * When `keycloak.debug` in config.json: logs parsed claims once, then the raw access JWT
    * (paste at jwt.io — clear console afterward). Does nothing if debug is off.
    */
   private tryLogAccessTokenOnce(reason: string): void {

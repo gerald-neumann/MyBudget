@@ -2,6 +2,22 @@
   <div
     class="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] pr-0.5 [scrollbar-gutter:stable]"
   >
+  <div class="flex min-w-0 flex-wrap items-center gap-2 border-b border-violet-100 pb-3 sm:pb-2">
+    <label [class]="yearToolbarLabelClasses()" for="dashboard-page-year">
+      @if (state.isSelectedYearOffCalendar()) {
+        <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
+      }
+      {{ t('app.yearLabel') }}
+    </label>
+    <input
+      id="dashboard-page-year"
+      [class]="yearToolbarInputClasses()"
+      type="number"
+      [ngModel]="state.selectedYear()"
+      (ngModelChange)="state.selectedYear.set(+$event)"
+      [attr.aria-label]="t('app.yearLabel')"
+    />
+  </div>
   <article class="min-w-0 rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4">
     <h2 class="text-lg font-semibold text-violet-900">{{ t('dashboard.cashflowTitle') }}</h2>
     <p class="text-sm text-violet-600">{{ t('dashboard.cashflowSubtitle') }}</p>
@@ -12,7 +28,13 @@
       @if (loading()) {
         <p class="pt-1 text-sm text-violet-600">{{ t('dashboard.loading') }}</p>
       } @else if (chartDataReady()) {
-        <canvas baseChart [data]="cashflowChartData" [options]="cashflowChartOptions" [type]="'bar'"></canvas>
+        <canvas
+          baseChart
+          [data]="cashflowChartData"
+          [options]="cashflowChartOptions"
+          [plugins]="cashflowChartPlugins"
+          [type]="'bar'"
+        ></canvas>
       } @else if (chartsLoadFailed()) {
         <p class="pt-1 text-sm text-rose-700">{{ t('dashboard.chartsLoadError') }}</p>
       }
@@ -29,7 +51,13 @@
         <p class="mt-3 text-sm text-violet-600">{{ t('dashboard.cashflowNoSpendData') }}</p>
       } @else {
         <div class="mt-3 h-72 min-h-[18rem] sm:h-96 sm:min-h-0">
-          <canvas baseChart [data]="expenseStackChartData" [options]="expenseStackChartOptions" [type]="'bar'"></canvas>
+          <canvas
+            baseChart
+            [data]="expenseStackChartData"
+            [options]="expenseStackChartOptions"
+            [plugins]="expenseStackChartPlugins"
+            [type]="'bar'"
+          ></canvas>
         </div>
       }
     } @else if (chartsLoadFailed()) {
@@ -59,7 +87,13 @@
         @if (loading()) {
           <p class="pt-1 text-sm text-violet-600">{{ t('dashboard.loading') }}</p>
         } @else if (chartDataReady()) {
-          <canvas baseChart [data]="categoryChartData" [options]="barChartOptions" [type]="'bar'"></canvas>
+          <canvas
+            baseChart
+            [data]="categoryChartData"
+            [options]="categoryChartOptions"
+            [plugins]="categoryChartPlugins"
+            [type]="'bar'"
+          ></canvas>
         } @else if (chartsLoadFailed()) {
           <p class="pt-1 text-sm text-rose-700">{{ t('dashboard.chartsLoadError') }}</p>
         }

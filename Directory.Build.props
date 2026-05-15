@@ -2,5 +2,7 @@
   <PropertyGroup>
     <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</Version>
     <InformationalVersion>$(Version)</InformationalVersion>
+    <_BuildTimestampUtcFile>$(MSBuildThisFileDirectory)BUILD_TIMESTAMP_UTC</_BuildTimestampUtcFile>
+    <BuildTimestampUtc Condition="'$(BuildTimestampUtc)' == '' and Exists('$(_BuildTimestampUtcFile)')">$([System.IO.File]::ReadAllText('$(_BuildTimestampUtcFile)').Trim())</BuildTimestampUtc>
   </PropertyGroup>
 </Project>

@@ -1,6 +1,4 @@
-import { isDevMode } from '@angular/core';
-
-/** Verbose auth / Keycloak logging: `ng serve` (isDevMode) or `keycloak.debug` in config.json. */
+/** Verbose auth / Keycloak logging: set `keycloak.debug: true` in config.json. */
 
 let keycloakDebugFromConfig = false;
 
@@ -9,7 +7,7 @@ export function setKeycloakDebugFromConfig(enabled: boolean): void {
 }
 
 export function isKeycloakAuthDebug(): boolean {
-  return keycloakDebugFromConfig || isDevMode();
+  return keycloakDebugFromConfig;
 }
 
 export function authDebugLog(...args: unknown[]): void {

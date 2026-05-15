@@ -27,12 +27,16 @@
   width: 12%;
 }
 
+.spendings-col-attachment {
+  width: 14%;
+}
+
 .spendings-col-note {
-  width: 30%;
+  width: 18%;
 }
 
 .spendings-col-actions {
-  width: 3rem;
+  width: 5.5rem;
 }
 
 .app-spendings-scroll .spendings-table > thead th {
@@ -50,4 +54,20 @@
   cursor: default;
   background-color: rgb(245 243 255 / 0.85);
   box-shadow: inset 3px 0 0 0 rgb(139 92 246);
+}
+
+.spendings-attachment-row td {
+  background-color: rgb(245 243 255 / 0.65);
+  box-shadow: inset 3px 0 0 0 rgb(167 139 250);
+}
+
+.spendings-count-overlay {
+  max-width: min(12rem, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spendings-filter-bar-active {
+  box-shadow: 0 0 0 1px rgb(251 191 36 / 0.35);
 }

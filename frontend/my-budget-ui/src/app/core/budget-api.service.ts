@@ -2,7 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 
 import { BUDGET_API_BASE_URL } from './api-base-url';
-import { Observable, catchError, of, shareReplay } from 'rxjs';
+import { Observable, catchError, map, of, shareReplay } from 'rxjs';
 import {
   Account,
   ActualEntriesPage,
@@ -22,6 +22,11 @@ import {
 export interface CurrentUserDto {
   userId: string;
   displayName: string;
+  colorScheme: string | null;
+}
+
+export interface UpdatePreferencesRequest {
+  colorScheme: string | null;
 }
 
 export interface ApiBuildInfoDto {
@@ -37,6 +42,10 @@ export class BudgetApiService {
 
   getMe(): Observable<CurrentUserDto> {
     return this.http.get<CurrentUserDto>(`${this.baseUrl}/me`);
+  }
+
+  updatePreferences(payload: UpdatePreferencesRequest): Observable<CurrentUserDto> {
+    return this.http.patch<CurrentUserDto>(`${this.baseUrl}/me/preferences`, payload);
   }
 
   /** Anonymous; safe before auth. Cached per browser session. */
@@ -177,6 +186,8 @@ export class BudgetApiService {
     amountFilter?: string | null;
     /** When set, only income or only expense lines (category-based). */
     flowKind?: 'income' | 'expense';
+    /** When set, only entries whose budget position belongs to this category. */
+    categoryId?: string;
   }): Observable<ActualEntriesPage> {
     let httpParams = new HttpParams()
       .set('baselineId', params.baselineId)
@@ -201,7 +212,29 @@ export class BudgetApiService {
     if (params.flowKind) {
       httpParams = httpParams.set('flowKind', params.flowKind);
     }
+    if (params.categoryId) {
+      httpParams = httpParams.set('categoryId', params.categoryId);
+    }
     return this.http.get<ActualEntriesPage>(`${this.baseUrl}/actuals`, { params: httpParams });
+  }
+
+  getActualBookingYears(
+    baselineId: string,
+    options?: {
+      flowKind?: 'income' | 'expense';
+      categoryId?: string;
+    }
+  ): Observable<number[]> {
+    let params = new HttpParams().set('baselineId', baselineId);
+    if (options?.flowKind) {
+      params = params.set('flowKind', options.flowKind);
+    }
+    if (options?.categoryId) {
+      params = params.set('categoryId', options.categoryId);
+    }
+    return this.http
+      .get<{ years: number[] }>(`${this.baseUrl}/actuals/booking-years`, { params })
+      .pipe(map((r) => r.years ?? []));
   }
 
   createActualEntry(payload: {
@@ -227,6 +260,24 @@ export class BudgetApiService {
     }
   ): Observable<ActualEntry> {
     return this.http.patch<ActualEntry>(`${this.baseUrl}/actuals/${id}`, payload);
+  }
+
+  deleteActualEntry(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/actuals/${id}`);
+  }
+
+  uploadActualAttachment(id: string, file: File): Observable<ActualEntry> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<ActualEntry>(`${this.baseUrl}/actuals/${id}/attachment`, form);
+  }
+
+  downloadActualAttachment(id: string): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/actuals/${id}/attachment`, { responseType: 'blob' });
+  }
+
+  deleteActualAttachment(id: string): Observable<ActualEntry> {
+    return this.http.delete<ActualEntry>(`${this.baseUrl}/actuals/${id}/attachment`);
   }
 
   getMonthlySummary(baselineId: string, from: string, to: string): Observable<MonthlySummaryPoint[]> {

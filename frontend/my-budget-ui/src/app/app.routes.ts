@@ -20,8 +20,7 @@ export const routes: Routes = [
       { path: 'budget', component: BudgetPageComponent },
       {
         path: 'actuals',
-        component: SpendingsPageComponent,
-        data: { ledgerMode: 'all' as const }
+        component: SpendingsPageComponent
       },
       { path: 'income', redirectTo: 'actuals', pathMatch: 'full' },
       { path: 'expenses', redirectTo: 'actuals', pathMatch: 'full' },
