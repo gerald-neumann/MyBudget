@@ -10,6 +10,10 @@ import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
 import { Account } from '../core/budget.models';
 import {
+  KeyboardAddShortcutService,
+  registerPageKeyboardAddShortcut
+} from '../core/keyboard-add-shortcut.service';
+import {
   confirmDiscardUnsavedChanges,
   shouldKeyboardCancelFromTarget,
   shouldKeyboardConfirmFromTarget
@@ -26,6 +30,7 @@ export class AccountsPageComponent {
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly keyboardAdd = inject(KeyboardAddShortcutService);
   private readonly accountsScroll = viewChild<ElementRef<HTMLElement>>('accountsScroll');
 
   accounts: Account[] = [];
@@ -59,6 +64,13 @@ export class AccountsPageComponent {
   private loadRequestId = 0;
 
   constructor() {
+    registerPageKeyboardAddShortcut(
+      this.destroyRef,
+      this.keyboardAdd,
+      () => this.openNewAccountRow(),
+      () => this.canKeyboardAddAccount()
+    );
+
     effect((onCleanup) => {
       const baselineId = this.state.selectedBaselineId();
       if (!baselineId) {
@@ -173,8 +185,18 @@ export class AccountsPageComponent {
     return this.newAccount.initialBalance;
   }
 
+  /** Same guards as the accounts “add” toolbar button (for the `+` shortcut). */
+  canKeyboardAddAccount(): boolean {
+    return (
+      !!this.state.selectedBaselineId() &&
+      this.canManageAccounts() &&
+      !this.newAccountRowActive() &&
+      !this.savingNewAccount()
+    );
+  }
+
   openNewAccountRow(): void {
-    if (!this.state.selectedBaselineId() || !this.canManageAccounts()) {
+    if (!this.canKeyboardAddAccount()) {
       return;
     }
     this.tryCancelEdit();

@@ -8,6 +8,46 @@ export function isKeyboardCancel(event: KeyboardEvent): boolean {
   return event.key === 'Escape' && !event.repeat;
 }
 
+/** Plus / numpad plus — same as the page primary “add” action (violet + button). */
+export function isKeyboardAdd(event: KeyboardEvent): boolean {
+  return !event.repeat && (event.key === '+' || event.code === 'NumpadAdd');
+}
+
+function isTextEntryElement(el: HTMLElement): boolean {
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    return true;
+  }
+  if (el instanceof HTMLInputElement) {
+    const type = el.type.toLowerCase();
+    return type !== 'button' && type !== 'submit' && type !== 'reset' && type !== 'checkbox' && type !== 'radio';
+  }
+  return el.isContentEditable;
+}
+
+/**
+ * Whether + should run the page add action.
+ * Skips text fields, dialogs, and modified keys (Ctrl/Cmd/Alt); Shift is allowed (needed for + on many layouts).
+ */
+export function shouldKeyboardAddFromTarget(event: KeyboardEvent): boolean {
+  if (!isKeyboardAdd(event)) {
+    return false;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    return false;
+  }
+  const t = event.target;
+  if (!(t instanceof HTMLElement)) {
+    return false;
+  }
+  if (t.closest('[role="dialog"]')) {
+    return false;
+  }
+  if (isTextEntryElement(t)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Whether Enter should run the row/sheet confirm action.
  * Skips when focus is on a button (native button activation still applies).

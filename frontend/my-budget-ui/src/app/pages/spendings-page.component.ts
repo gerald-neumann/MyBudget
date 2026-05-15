@@ -10,6 +10,10 @@ import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
 import { Account, ActualEntry, BudgetPosition, Category } from '../core/budget.models';
 import {
+  KeyboardAddShortcutService,
+  registerPageKeyboardAddShortcut
+} from '../core/keyboard-add-shortcut.service';
+import {
   confirmDiscardUnsavedChanges,
   shouldKeyboardCancelFromTarget,
   shouldKeyboardConfirmFromTarget
@@ -54,6 +58,7 @@ export class SpendingsPageComponent {
   readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly keyboardAdd = inject(KeyboardAddShortcutService);
   private readonly drillDownQuery = toSignal(this.route.queryParamMap, {
     initialValue: this.route.snapshot.queryParamMap
   });
@@ -129,6 +134,13 @@ export class SpendingsPageComponent {
   private newActualSnapshot = '';
 
   constructor() {
+    registerPageKeyboardAddShortcut(
+      this.destroyRef,
+      this.keyboardAdd,
+      () => this.openNewEntryRow(),
+      () => this.canKeyboardAddEntry()
+    );
+
     this.destroyRef.onDestroy(() => {
       this.actualsPageSub?.unsubscribe();
     });
@@ -218,6 +230,19 @@ export class SpendingsPageComponent {
 
   canManageSpendings(): boolean {
     return this.state.canManageSelectedBaseline();
+  }
+
+  /** Same guards as the “Buchung hinzufügen” toolbar button (for the `+` shortcut). */
+  canKeyboardAddEntry(): boolean {
+    return (
+      this.referenceDataReady() &&
+      !!this.state.selectedBaselineId() &&
+      this.positions.length > 0 &&
+      this.accounts.length > 0 &&
+      this.canManageSpendings() &&
+      !this.newEntryRowActive() &&
+      !this.savingNewEntry()
+    );
   }
 
   openNewEntryRow(): void {
@@ -518,7 +543,7 @@ export class SpendingsPageComponent {
       case 'year': {
         const y = this.actualsYearFilter();
         if (y === null) {
-          return true;
+          return this.actualBookingYears.length > 0;
         }
         if (y !== this.state.selectedYear()) {
           return true;

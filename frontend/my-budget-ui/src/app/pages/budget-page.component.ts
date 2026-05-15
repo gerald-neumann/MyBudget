@@ -8,6 +8,10 @@ import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
 import {
+  KeyboardAddShortcutService,
+  registerPageKeyboardAddShortcut
+} from '../core/keyboard-add-shortcut.service';
+import {
   confirmDiscardUnsavedChanges,
   isKeyboardCancel,
   shouldKeyboardCancelFromTarget,
@@ -27,6 +31,7 @@ export class BudgetPageComponent {
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly keyboardAdd = inject(KeyboardAddShortcutService);
 
   yearToolbarLabelClasses(): string {
     return this.state.isSelectedYearOffCalendar()
@@ -128,6 +133,13 @@ export class BudgetPageComponent {
   private readonly cellEdits$ = new Subject<{ budgetPositionId: string; month: number; amount: number }>();
 
   constructor() {
+    registerPageKeyboardAddShortcut(
+      this.destroyRef,
+      this.keyboardAdd,
+      () => this.openNewPositionSheet(),
+      () => this.canManageSelectedBaseline()
+    );
+
     this.cellEdits$
       .pipe(
         bufferTime(500),
