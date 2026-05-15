@@ -15,6 +15,7 @@ import {
   MonthlyCashflowPoint
 } from '../core/budget.models';
 import { I18nService } from '../core/i18n.service';
+import { ViewportService } from '../core/viewport.service';
 import { buildSpendingsDrillDownQuery } from '../core/spendings-drill-down';
 
 type ChartHitHandler = (hit: ActiveElement) => void;
@@ -29,14 +30,13 @@ export class DashboardPageComponent {
   private readonly api = inject(BudgetApiService);
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
+  readonly viewport = inject(ViewportService);
   private readonly router = inject(Router);
   private readonly ngZone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
 
   yearToolbarLabelClasses(): string {
-    return this.state.isSelectedYearOffCalendar()
-      ? 'select-none inline-flex items-center gap-1 text-sm font-semibold text-amber-900'
-      : 'select-none text-sm font-medium text-violet-700';
+    return 'select-none inline-flex items-center gap-1 text-sm font-semibold text-amber-900';
   }
 
   yearToolbarInputClasses(): string {
@@ -54,6 +54,9 @@ export class DashboardPageComponent {
 
   private expenseStackSeries: CategoryMonthlySpendSeries[] = [];
   private categorySummaryRows: CategorySummaryPoint[] = [];
+
+  /** Collapsible year / toolbar on compact viewports. */
+  readonly pageToolsOpen = signal(false);
 
   /** Signal so chart forkJoin completion always updates the template. */
   readonly loading = signal(false);
@@ -74,8 +77,6 @@ export class DashboardPageComponent {
     }
     return { base, compare, delta };
   }
-
-  cashflowNoIncome = false;
 
   cashflowChartData: ChartConfiguration['data'] = { labels: [], datasets: [] };
   cashflowChartOptions: ChartConfiguration['options'] = {};
@@ -185,7 +186,6 @@ export class DashboardPageComponent {
         this.chartsLoadFailed.set(false);
 
         const months = response.cashflow.months;
-        this.cashflowNoIncome = months.every((m) => m.incomePlanned === 0 && m.incomeActual === 0);
 
         this.applyCashflowCharts(months);
         this.applyExpenseStackChart(response.cashflow.expenseSeries);

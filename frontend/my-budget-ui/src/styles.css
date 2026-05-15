@@ -264,17 +264,35 @@ html[data-app-theme="evergreen"] {
 }
 
 /* Icon-only table row actions (edit / delete / confirm / cancel). */
+html {
+  /* Single source for action-column width: two icon buttons + row gap + `app-table-actions-cell` horizontal padding. */
+  --app-table-icon-btn-size: 2.25rem;
+  --app-table-row-actions-gap: 0.25rem;
+  --app-table-actions-cell-pad-x: 0.25rem;
+  --app-table-actions-col-width: calc(
+    2 * var(--app-table-icon-btn-size) + var(--app-table-row-actions-gap) + 2 * var(--app-table-actions-cell-pad-x)
+  );
+}
+
 .app-table-row-actions {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.25rem;
+  gap: var(--app-table-row-actions-gap);
+}
+
+/* Tight horizontal padding for table action columns (pair with --app-table-actions-col-width). */
+td.app-table-actions-cell,
+th.app-table-actions-cell {
+  box-sizing: border-box;
+  padding-left: var(--app-table-actions-cell-pad-x);
+  padding-right: var(--app-table-actions-cell-pad-x);
 }
 
 .app-table-icon-btn {
   display: inline-flex;
-  height: 2.25rem;
-  width: 2.25rem;
+  height: var(--app-table-icon-btn-size);
+  width: var(--app-table-icon-btn-size);
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
@@ -334,4 +352,36 @@ html[data-app-theme="evergreen"] {
 .app-table-icon-btn--cancel:hover:not(:disabled) {
   border-color: var(--app-border);
   background-color: var(--app-surface-muted);
+}
+
+/* Condensed data tables: tighter row height (user menu → table spacing). */
+html[data-app-density="condensed"] {
+  --app-table-icon-btn-size: 2rem;
+}
+
+html[data-app-density="condensed"] table.budget-table :is(td, th),
+html[data-app-density="condensed"] table.accounts-table :is(td, th),
+html[data-app-density="condensed"] table.spendings-table :is(td, th),
+html[data-app-density="condensed"] table.comparison-table :is(td, th) {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+}
+
+html[data-app-density="condensed"] table.budget-table input,
+html[data-app-density="condensed"] table.budget-table select,
+html[data-app-density="condensed"] table.accounts-table input,
+html[data-app-density="condensed"] table.accounts-table select,
+html[data-app-density="condensed"] table.spendings-table input,
+html[data-app-density="condensed"] table.spendings-table select,
+html[data-app-density="condensed"] table.comparison-table input,
+html[data-app-density="condensed"] table.comparison-table select {
+  min-height: 2rem !important;
+  padding-top: 0.125rem !important;
+  padding-bottom: 0.125rem !important;
+}
+
+html[data-app-density="condensed"] table.spendings-table textarea {
+  min-height: 2rem !important;
+  padding-top: 0.125rem !important;
+  padding-bottom: 0.125rem !important;
 }

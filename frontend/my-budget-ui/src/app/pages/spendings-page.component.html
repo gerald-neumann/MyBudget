@@ -9,193 +9,236 @@
   }
 
   <article
-    class="shrink-0 rounded-lg border p-3 shadow-sm backdrop-blur sm:p-4"
-    [class]="hasActiveSpendingsFilters()
-      ? 'border-amber-300 bg-amber-50/80 spendings-filter-bar-active'
-      : 'border-violet-100 bg-white/80'"
-  >
-    <div class="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-end lg:gap-3">
-      <label class="flex min-w-0 w-full flex-col gap-1 lg:w-auto lg:max-w-none lg:shrink-0">
-        <span [class]="spendingsFilterLabelClasses(isSpendingsFilterControlActive('year'))">
-          @if (isSpendingsFilterControlActive('year')) {
-            <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
-          }
-          {{ t('app.yearLabel') }}
-        </span>
-        <select
-          [class]="spendingsFilterControlClasses(isSpendingsFilterControlActive('year')) + ' sm:min-w-[5.5rem]'"
-          [ngModel]="actualsYearFilter()"
-          (ngModelChange)="onActualsYearFilterChange($event)"
-          [attr.aria-label]="t('app.yearLabel')"
-        >
-          <option [ngValue]="null">{{ t('budget.spendingsYearAll') }}</option>
-          @for (year of actualsYearOptions(); track year) {
-            <option [ngValue]="year">{{ year }}</option>
-          }
-        </select>
-      </label>
-      <label class="flex min-w-0 w-full flex-col gap-1 lg:w-auto lg:max-w-none lg:shrink-0">
-        <span
-          [class]="
-            spendingsFilterLabelClasses(
-              isSpendingsFilterControlActive('period') || isSpendingsFilterControlActive('month')
-            )
-          "
-        >
-          @if (isSpendingsFilterControlActive('period') || isSpendingsFilterControlActive('month')) {
-            <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
-          }
-          {{ t('budget.spendingsFilterPeriod') }}
-        </span>
-        <div class="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-stretch">
-          <select
-            [(ngModel)]="datePreset"
-            (ngModelChange)="onDatePresetChange()"
-            [class]="spendingsFilterControlClasses(isSpendingsFilterControlActive('period')) + ' sm:min-w-[10.5rem]'"
-            [attr.aria-label]="t('budget.spendingsFilterPeriod')"
-          >
-            <option value="currentMonth">{{ t('budget.spendingsPresetCurrentMonth') }}</option>
-            <option value="prevMonth">{{ t('budget.spendingsPresetPrevMonth') }}</option>
-            <option value="month">{{ t('budget.spendingsPresetMonth') }}</option>
-            <option value="currentYear">{{ t('budget.spendingsPresetCurrentYear') }}</option>
-            <option value="lastYear">{{ t('budget.spendingsPresetLastYear') }}</option>
-            <option value="all">{{ t('budget.spendingsPresetAll') }}</option>
-          </select>
-          @if (datePreset === 'month') {
-            <select
-              [ngModel]="ledgerMonthFilter"
-              (ngModelChange)="onLedgerMonthFilterChange($event)"
-              [class]="spendingsFilterControlClasses(isSpendingsFilterControlActive('month')) + ' sm:min-w-[6.5rem]'"
-              [attr.aria-label]="t('budget.spendingsFilterMonth')"
-            >
-              @for (month of ledgerMonthOptions; track month) {
-                <option [ngValue]="month">{{ monthLabel(month) }}</option>
-              }
-            </select>
-          }
-        </div>
-      </label>
-      @if (referenceDataReady() && state.selectedBaselineId() && positions.length > 0) {
-        <label class="flex min-w-0 w-full flex-col gap-1 lg:w-[14rem] lg:max-w-[14rem] lg:shrink-0">
-          <span [class]="spendingsFilterLabelClasses(isSpendingsFilterControlActive('flow'))">
-            @if (isSpendingsFilterControlActive('flow')) {
-              <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
-            }
-            {{ t('budget.spendingsFilterFlow') }}
-          </span>
-          <select
-            [(ngModel)]="ledgerFlowFilter"
-            (ngModelChange)="onLedgerFlowFilterChange()"
-            [class]="spendingsFilterControlClasses(isSpendingsFilterControlActive('flow'))"
-          >
-            <option value="all">{{ t('budget.spendingsFilterFlowAll') }}</option>
-            <option value="income">{{ t('budget.spendingsFilterFlowIncome') }}</option>
-            <option value="expense">{{ t('budget.spendingsFilterFlowExpense') }}</option>
-          </select>
-        </label>
-        <label class="flex min-w-0 w-full flex-col gap-1 lg:w-[14rem] lg:max-w-[14rem] lg:shrink-0">
-          <span [class]="spendingsFilterLabelClasses(isSpendingsFilterControlActive('category'))">
-            @if (isSpendingsFilterControlActive('category')) {
-              <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
-            }
-            {{ t('budget.spendingsFilterCategory') }}
-          </span>
-          <select
-            [ngModel]="ledgerCategoryFilter"
-            (ngModelChange)="ledgerCategoryFilter = $event; onLedgerCategoryFilterChange()"
-            [class]="spendingsFilterControlClasses(isSpendingsFilterControlActive('category'))"
-          >
-            <option [ngValue]="null">{{ t('budget.spendingsFilterCategoryAll') }}</option>
-            @for (category of filterableCategories(); track category.id) {
-              <option [ngValue]="category.id">{{ categoryName(category.id) }}</option>
-            }
-          </select>
-        </label>
-        <label class="flex min-w-0 w-full flex-1 flex-col gap-1 lg:min-w-[12rem]">
-          <span [class]="spendingsFilterLabelClasses(isSpendingsFilterControlActive('search'))">
-            @if (isSpendingsFilterControlActive('search')) {
-              <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
-            }
-            {{ t('budget.spendingsSearchLabel') }}
-          </span>
-          <div
-            [class]="spendingsFilterSearchClasses(isSpendingsFilterControlActive('search'))"
-            (click)="focusLedgerSearchDraft($event)"
-          >
-            <span class="fa-sharp fa-solid fa-magnifying-glass shrink-0 text-violet-400" aria-hidden="true"></span>
-            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-              @for (chip of ledgerSearchChips; track chip.id) {
-                <span
-                  class="inline-flex max-w-full items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium tabular-nums"
-                  [ngClass]="ledgerSearchChipClassList(chip)"
-                >
-                  <span class="max-w-[min(18rem,55vw)] truncate">{{ ledgerSearchChipDisplayLabel(chip) }}</span>
-                  <button
-                    type="button"
-                    class="ledger-search-chip-remove rounded p-0.5 leading-none text-violet-600 hover:bg-violet-200/80 hover:text-violet-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
-                    (mousedown)="$event.preventDefault()"
-                    (click)="removeLedgerSearchChip(chip.id); $event.stopPropagation()"
-                    [attr.aria-label]="t('budget.ledgerSearchChipRemoveAria')"
-                  >
-                    ×
-                  </button>
-                </span>
-              }
-              <input
-                #ledgerSearchDraft
-                [(ngModel)]="searchDraft"
-                (keydown)="onLedgerSearchDraftKeydown($event)"
-                (blur)="onLedgerSearchDraftBlur()"
-                type="search"
-                enterkeyhint="search"
-                autocomplete="off"
-                class="min-w-[6rem] flex-1 border-0 bg-transparent py-1 text-sm text-violet-900 outline-none placeholder:text-violet-400 [&::-webkit-search-cancel-button]:hidden"
-                [placeholder]="ledgerSearchChips.length === 0 ? t('budget.spendingsSearchPlaceholder') : ''"
-              />
-            </div>
-          </div>
-        </label>
-      }
-      @if (hasActiveSpendingsFilters()) {
-        <div class="flex w-full shrink-0 items-end justify-end lg:ml-auto lg:w-auto">
-          <button
-            type="button"
-            class="inline-flex min-h-10 items-center gap-1.5 rounded border border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 sm:min-h-0 sm:py-1.5"
-            (click)="clearSpendingsFilters()"
-          >
-            <span class="fa-sharp fa-solid fa-filter-circle-xmark" aria-hidden="true"></span>
-            {{ t('budget.spendingsClearFilters') }}
-          </button>
-        </div>
-      }
-    </div>
-  </article>
-
-  <article
     class="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4"
   >
-    <div class="shrink-0">
-      <h2 class="text-lg font-semibold text-violet-900">{{ spendingsPageTitle() }}</h2>
-    </div>
-
-    @if (referenceDataReady() && state.selectedBaselineId() && positions.length > 0 && accounts.length > 0) {
-      <div class="shrink-0 flex flex-col gap-2 border-b border-violet-100 pb-3">
-        @if (state.isSampleBaselineSelected()) {
-          <span class="self-start rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+    <div
+      class="spendings-page-header-row grid shrink-0 min-w-0 grid-cols-1 items-center gap-x-3 gap-y-2 border-b border-violet-100 pb-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-y-0"
+    >
+      <div class="flex min-w-0 flex-wrap items-center gap-2 justify-self-start sm:pr-2">
+        <h2 class="min-w-0 truncate text-lg font-semibold text-violet-900">{{ spendingsPageTitle() }}</h2>
+        @if (state.selectedBaseline()?.myAccess === 'Viewer' || state.isSampleBaselineSelected()) {
+          <span class="shrink-0 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
             {{ t('app.readOnlyBadge') }}
           </span>
         }
+      </div>
+
+      <div
+        class="inline-flex min-w-0 max-w-full flex-nowrap items-center justify-center gap-1.5 justify-self-center text-sm"
+      >
+        @if (state.selectedBaselineId()) {
+          <select
+            id="spendings-page-year"
+            [class]="
+              spendingsFilterControlClasses(isSpendingsFilterControlActive('year')) +
+              ' !w-auto min-w-[5.5rem] shrink-0'
+            "
+            [ngModel]="actualsYearFilter()"
+            (ngModelChange)="onActualsYearFilterChange($event)"
+            [attr.aria-label]="t('app.yearLabel')"
+          >
+            <option [ngValue]="null">{{ t('budget.spendingsYearAll') }}</option>
+            @for (year of actualsYearOptions(); track year) {
+              <option [ngValue]="year">{{ year }}</option>
+            }
+          </select>
+        }
         <button
           type="button"
-          class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 self-start rounded bg-violet-500 px-3 py-2 text-xs font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-sm"
-          [disabled]="!canManageSpendings() || newEntryRowActive() || savingNewEntry()"
-          (click)="openNewEntryRow()"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-violet-800 transition-colors focus:outline-none focus-visible:ring-2 sm:h-8 sm:w-8"
+          [ngClass]="{
+            'border-violet-200 bg-violet-50 hover:bg-violet-100 focus-visible:ring-violet-400':
+              spendingsFiltersOpen() || !hasActiveSpendingsFilters(),
+            'border-amber-400 bg-amber-100 text-amber-900 shadow-sm ring-2 ring-amber-300/80 hover:bg-amber-200 focus-visible:ring-amber-400':
+              !spendingsFiltersOpen() && hasActiveSpendingsFilters()
+          }"
+          [attr.aria-expanded]="spendingsFiltersOpen()"
+          [attr.aria-label]="
+            spendingsFiltersOpen() ? t('budget.spendingsFiltersHide') : t('budget.spendingsFiltersShow')
+          "
+          [attr.title]="
+            spendingsFiltersOpen() ? t('budget.spendingsFiltersHide') : t('budget.spendingsFiltersShow')
+          "
+          (click)="spendingsFiltersOpen.update((o) => !o)"
         >
-          <span class="fa-sharp fa-solid fa-circle-plus text-sm leading-none sm:text-base" aria-hidden="true"></span>
-          {{ addActualButtonLabel() }}
+          @if (spendingsFiltersOpen()) {
+            <span class="fa-sharp fa-solid fa-chevron-up text-sm leading-none" aria-hidden="true"></span>
+          } @else {
+            <span class="fa-sharp fa-solid fa-filter text-sm leading-none" aria-hidden="true"></span>
+          }
         </button>
       </div>
-    }
+
+      <div class="flex min-w-0 flex-wrap items-center justify-end gap-2 justify-self-end sm:pl-2">
+        @if (referenceDataReady() && state.selectedBaselineId() && positions.length > 0 && accounts.length > 0) {
+          <button
+            type="button"
+            class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-xs font-medium text-white hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-1.5 sm:text-sm"
+            [disabled]="!canManageSpendings() || newEntryRowActive() || savingNewEntry()"
+            (click)="openNewEntryRow()"
+          >
+            <span class="fa-sharp fa-solid fa-circle-plus text-sm leading-none sm:text-base" aria-hidden="true"></span>
+            {{ addActualButtonLabel() }}
+          </button>
+        }
+      </div>
+
+      @if (spendingsFiltersOpen()) {
+        <div class="col-span-1 w-full min-w-0 justify-self-stretch sm:col-span-3 sm:pt-1">
+          <div
+            class="rounded-xl border p-3 shadow-sm backdrop-blur sm:p-4"
+            [class]="
+              hasActiveSpendingsFilters()
+                ? 'border-amber-300 bg-amber-50/90 spendings-filter-bar-active'
+                : 'border-violet-100 bg-violet-50/40'
+            "
+          >
+            <div class="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-end lg:gap-3">
+              <label class="flex min-w-0 w-full flex-col gap-1 lg:w-auto lg:max-w-none lg:shrink-0">
+                <span
+                  [class]="
+                    spendingsFilterLabelClasses(
+                      isSpendingsFilterControlActive('period') || isSpendingsFilterControlActive('month')
+                    )
+                  "
+                >
+                  @if (isSpendingsFilterControlActive('period') || isSpendingsFilterControlActive('month')) {
+                    <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
+                  }
+                  {{ t('budget.spendingsFilterPeriod') }}
+                </span>
+                <div class="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-stretch">
+                  <select
+                    [(ngModel)]="datePreset"
+                    (ngModelChange)="onDatePresetChange()"
+                    [class]="
+                      spendingsFilterControlClasses(isSpendingsFilterControlActive('period')) +
+                      ' sm:min-w-[10.5rem]'
+                    "
+                    [attr.aria-label]="t('budget.spendingsFilterPeriod')"
+                  >
+                    <option value="currentMonth">{{ t('budget.spendingsPresetCurrentMonth') }}</option>
+                    <option value="prevMonth">{{ t('budget.spendingsPresetPrevMonth') }}</option>
+                    <option value="month">{{ t('budget.spendingsPresetMonth') }}</option>
+                    <option value="currentYear">{{ t('budget.spendingsPresetCurrentYear') }}</option>
+                    <option value="lastYear">{{ t('budget.spendingsPresetLastYear') }}</option>
+                    <option value="all">{{ t('budget.spendingsPresetAll') }}</option>
+                  </select>
+                  @if (datePreset === 'month') {
+                    <select
+                      [ngModel]="ledgerMonthFilter"
+                      (ngModelChange)="onLedgerMonthFilterChange($event)"
+                      [class]="
+                        spendingsFilterControlClasses(isSpendingsFilterControlActive('month')) +
+                        ' sm:min-w-[6.5rem]'
+                      "
+                      [attr.aria-label]="t('budget.spendingsFilterMonth')"
+                    >
+                      @for (month of ledgerMonthOptions; track month) {
+                        <option [ngValue]="month">{{ monthLabel(month) }}</option>
+                      }
+                    </select>
+                  }
+                </div>
+              </label>
+              @if (referenceDataReady() && state.selectedBaselineId() && positions.length > 0) {
+                <label class="flex min-w-0 w-full flex-col gap-1 lg:w-[14rem] lg:max-w-[14rem] lg:shrink-0">
+                  <span [class]="spendingsFilterLabelClasses(isSpendingsFilterControlActive('flow'))">
+                    @if (isSpendingsFilterControlActive('flow')) {
+                      <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
+                    }
+                    {{ t('budget.spendingsFilterFlow') }}
+                  </span>
+                  <select
+                    [(ngModel)]="ledgerFlowFilter"
+                    (ngModelChange)="onLedgerFlowFilterChange()"
+                    [class]="spendingsFilterControlClasses(isSpendingsFilterControlActive('flow'))"
+                  >
+                    <option value="all">{{ t('budget.spendingsFilterFlowAll') }}</option>
+                    <option value="income">{{ t('budget.spendingsFilterFlowIncome') }}</option>
+                    <option value="expense">{{ t('budget.spendingsFilterFlowExpense') }}</option>
+                  </select>
+                </label>
+                <label class="flex min-w-0 w-full flex-col gap-1 lg:w-[14rem] lg:max-w-[14rem] lg:shrink-0">
+                  <span [class]="spendingsFilterLabelClasses(isSpendingsFilterControlActive('category'))">
+                    @if (isSpendingsFilterControlActive('category')) {
+                      <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
+                    }
+                    {{ t('budget.spendingsFilterCategory') }}
+                  </span>
+                  <select
+                    [ngModel]="ledgerCategoryFilter"
+                    (ngModelChange)="ledgerCategoryFilter = $event; onLedgerCategoryFilterChange()"
+                    [class]="spendingsFilterControlClasses(isSpendingsFilterControlActive('category'))"
+                  >
+                    <option [ngValue]="null">{{ t('budget.spendingsFilterCategoryAll') }}</option>
+                    @for (category of filterableCategories(); track category.id) {
+                      <option [ngValue]="category.id">{{ categoryName(category.id) }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="flex min-w-0 w-full flex-1 flex-col gap-1 lg:min-w-[12rem]">
+                  <span [class]="spendingsFilterLabelClasses(isSpendingsFilterControlActive('search'))">
+                    @if (isSpendingsFilterControlActive('search')) {
+                      <span class="fa-sharp fa-solid fa-filter text-[0.65rem] text-amber-700" aria-hidden="true"></span>
+                    }
+                    {{ t('budget.spendingsSearchLabel') }}
+                  </span>
+                  <div
+                    [class]="spendingsFilterSearchClasses(isSpendingsFilterControlActive('search'))"
+                    (click)="focusLedgerSearchDraft($event)"
+                  >
+                    <span class="fa-sharp fa-solid fa-magnifying-glass shrink-0 text-violet-400" aria-hidden="true"></span>
+                    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                      @for (chip of ledgerSearchChips; track chip.id) {
+                        <span
+                          class="inline-flex max-w-full items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium tabular-nums"
+                          [ngClass]="ledgerSearchChipClassList(chip)"
+                        >
+                          <span class="max-w-[min(18rem,55vw)] truncate">{{ ledgerSearchChipDisplayLabel(chip) }}</span>
+                          <button
+                            type="button"
+                            class="ledger-search-chip-remove rounded p-0.5 leading-none text-violet-600 hover:bg-violet-200/80 hover:text-violet-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                            (mousedown)="$event.preventDefault()"
+                            (click)="removeLedgerSearchChip(chip.id); $event.stopPropagation()"
+                            [attr.aria-label]="t('budget.ledgerSearchChipRemoveAria')"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      }
+                      <input
+                        #ledgerSearchDraft
+                        [(ngModel)]="searchDraft"
+                        (keydown)="onLedgerSearchDraftKeydown($event)"
+                        (blur)="onLedgerSearchDraftBlur()"
+                        type="search"
+                        enterkeyhint="search"
+                        autocomplete="off"
+                        class="min-w-[6rem] flex-1 border-0 bg-transparent py-1 text-sm text-violet-900 outline-none placeholder:text-violet-400 [&::-webkit-search-cancel-button]:hidden"
+                        [placeholder]="ledgerSearchChips.length === 0 ? t('budget.spendingsSearchPlaceholder') : ''"
+                      />
+                    </div>
+                  </div>
+                </label>
+              }
+              @if (hasActiveSpendingsFilters()) {
+                <div class="flex w-full shrink-0 items-end justify-end lg:ml-auto lg:w-auto">
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 items-center gap-1.5 rounded border border-amber-500 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 sm:min-h-0 sm:py-1.5"
+                    (click)="clearSpendingsFilters()"
+                  >
+                    <span class="fa-sharp fa-solid fa-filter-circle-xmark" aria-hidden="true"></span>
+                    {{ t('budget.spendingsClearFilters') }}
+                  </button>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      }
+    </div>
 
     @if (!loading()) {
       <div class="shrink-0">
@@ -229,7 +272,11 @@
           @if (loadingActuals() && actualEntries.length === 0) {
             <p class="px-2 py-6 text-center text-sm text-violet-600">{{ t('budget.spendingsLoadingEntries') }}</p>
           } @else {
-            <table class="spendings-table w-full min-w-0 text-sm">
+            <table
+              class="spendings-table w-full min-w-0 text-sm"
+              [class.spendings-table--swipe-mobile]="viewport.maxSm()"
+              [class.spendings-table--action-expanded]="spendingsActionsColumnExpanded()"
+            >
               <colgroup>
                 <col class="spendings-col-date" />
                 <col class="spendings-col-position" />
@@ -247,7 +294,11 @@
                   <th class="min-w-0 bg-violet-50 px-2 py-2 text-right">{{ t('budget.amountPlaceholder') }}</th>
                   <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.attachment') }}</th>
                   <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.note') }}</th>
-                  <th class="min-w-0 bg-violet-50 px-0 py-2 text-right" aria-hidden="true"></th>
+                  <th
+                    class="app-table-actions-cell min-w-0 bg-violet-50 py-2 text-right"
+                    [class.max-sm:hidden]="viewport.maxSm() && !newEntryRowActive() && editingEntryId === null"
+                    aria-hidden="true"
+                  ></th>
                 </tr>
               </thead>
               <tbody>
@@ -302,21 +353,44 @@
                         class="min-h-9 w-full rounded border border-violet-300 bg-white px-1 py-1 text-right text-xs tabular-nums sm:text-sm"
                         [ngClass]="newActualAmountColorClass()"
                         [value]="newActualAmountInputValue()"
-                        [placeholder]="newActualAmountPlaceholder()"
+                        [placeholder]="t('budget.amountPlaceholder')"
                         (focus)="onNewActualAmountFocus()"
                         (input)="onNewActualAmountInput($any($event.target).value)"
                         (blur)="onNewActualAmountBlur()"
                       />
                     </td>
                     <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
-                      @if (hasNewAttachmentFile()) {
-                        <span class="inline-flex max-w-full items-center gap-1.5 text-xs text-violet-800 sm:text-sm" [title]="newAttachmentLabel()">
-                          <span class="fa-sharp fa-solid fa-paperclip shrink-0 text-violet-600" aria-hidden="true"></span>
-                          <span class="min-w-0 truncate">{{ newAttachmentLabel() }}</span>
-                        </span>
-                      } @else {
-                        <span class="text-violet-400">—</span>
-                      }
+                      <div class="flex min-w-0 flex-col gap-1.5">
+                        @if (hasNewAttachmentFile()) {
+                          <span
+                            class="inline-flex max-w-full items-center gap-1.5 text-xs text-violet-800 sm:text-sm"
+                            [title]="newAttachmentLabel()"
+                          >
+                            <span class="fa-sharp fa-solid fa-paperclip shrink-0 text-violet-600" aria-hidden="true"></span>
+                            <span class="min-w-0 truncate">{{ newAttachmentLabel() }}</span>
+                          </span>
+                        }
+                        <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-violet-800 sm:text-sm">
+                          @if (!hasNewAttachmentFile()) {
+                            <span class="font-medium leading-tight">{{ t('budget.attachmentOptional') }}</span>
+                          }
+                          <label
+                            class="inline-flex cursor-pointer items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1.5 hover:border-violet-300 hover:bg-violet-50"
+                            (click)="$event.stopPropagation()"
+                          >
+                            <span class="fa-sharp fa-solid fa-paperclip text-sm leading-none" aria-hidden="true"></span>
+                            {{ hasNewAttachmentFile() ? t('budget.attachmentReplace') : t('budget.attachmentUpload') }}
+                            <input
+                              type="file"
+                              class="sr-only"
+                              accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
+                              [disabled]="savingNewEntry() || uploadingAttachment()"
+                              (change)="onNewAttachmentSelected($event)"
+                              (click)="$event.stopPropagation()"
+                            />
+                          </label>
+                        </div>
+                      </div>
                     </td>
                     <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
                       <input
@@ -328,7 +402,7 @@
                         [placeholder]="t('budget.notePlaceholder')"
                       />
                     </td>
-                    <td class="min-w-0 whitespace-nowrap px-1 py-1 align-middle text-right sm:px-2 sm:py-2">
+                    <td class="app-table-actions-cell min-w-0 whitespace-nowrap py-1 align-middle text-right sm:py-2">
                       <div class="app-table-row-actions">
                         <button
                           type="button"
@@ -352,30 +426,6 @@
                       </div>
                     </td>
                   </tr>
-                  <tr
-                    class="border-t border-violet-100 spendings-row-editing spendings-attachment-row"
-                    (keydown.escape)="onSpendingsTableRowEscapeCancel($event)"
-                  >
-                    <td colspan="7" class="px-2 py-2 sm:px-3">
-                      <div class="flex flex-wrap items-center gap-2 text-xs text-violet-800 sm:text-sm">
-                        <span class="font-medium">{{ t('budget.attachmentOptional') }}</span>
-                        <label
-                          class="inline-flex cursor-pointer items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1.5 text-violet-800 hover:border-violet-300 hover:bg-violet-50"
-                        >
-                          <span class="fa-sharp fa-solid fa-paperclip text-sm leading-none" aria-hidden="true"></span>
-                          {{ t('budget.attachmentUpload') }}
-                          <input
-                            type="file"
-                            class="sr-only"
-                            accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
-                            [disabled]="savingNewEntry() || uploadingAttachment()"
-                            (change)="onNewAttachmentSelected($event)"
-                          />
-                        </label>
-                        <span class="max-w-[min(20rem,60vw)] truncate text-violet-600">{{ newAttachmentLabel() }}</span>
-                      </div>
-                    </td>
-                  </tr>
                 }
                 @for (entry of actualEntries; track entry.id) {
                   <tr
@@ -383,6 +433,8 @@
                     [class.spendings-row-editable]="canManageSpendings() && editingEntryId !== entry.id"
                     [class.spendings-row-editing]="editingEntryId === entry.id"
                     [class.opacity-60]="savingEdit() && editingEntryId === entry.id"
+                    [appSwipeDeleteRow]="swipeDeleteSpendingsRowEnabled(entry)"
+                    (swipeDelete)="deleteActualEntry(entry)"
                     (click)="onActualRowClick(entry)"
                     (keydown.enter)="onSpendingsTableRowEnterConfirm($event, entry)"
                     (keydown.escape)="onSpendingsTableRowEscapeCancel($event, entry)"
@@ -431,28 +483,72 @@
                         class="min-h-9 w-full rounded border border-violet-300 bg-white px-1 py-1 text-right text-xs tabular-nums sm:text-sm"
                         [ngClass]="i18n.signedAmountTextClass(editDraft.amount)"
                         [value]="editAmountDisplayValue()"
-                        [placeholder]="editAmountPlaceholder()"
+                        [placeholder]="t('budget.amountPlaceholder')"
                         (focus)="onEditAmountFocus()"
                         (input)="onEditAmountInput($any($event.target).value)"
                         (blur)="onEditAmountBlur()"
                       />
                     </td>
-                    <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
-                      @if (entry.hasAttachment) {
-                        <button
-                          type="button"
-                          class="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-1.5 py-1 text-left text-xs text-violet-800 transition hover:border-violet-300 hover:bg-violet-50 sm:text-sm"
-                          (click)="downloadAttachment(entry, $event)"
-                          [disabled]="uploadingAttachment()"
-                          [attr.aria-label]="t('budget.attachmentDownload')"
-                          [attr.title]="entry.attachmentFileName || t('budget.attachmentHasFile')"
-                        >
-                          <span class="fa-sharp fa-solid fa-paperclip shrink-0 text-violet-600" aria-hidden="true"></span>
-                          <span class="min-w-0 truncate">{{ entry.attachmentFileName || t('budget.attachmentHasFile') }}</span>
-                        </button>
-                      } @else {
-                        <span class="text-violet-400">—</span>
-                      }
+                    <td class="min-w-0 px-1 py-1 align-top sm:px-2 sm:py-2">
+                      <div class="flex min-w-0 flex-col gap-1.5 py-0.5">
+                        @if (entry.hasAttachment) {
+                          <button
+                            type="button"
+                            class="inline-flex w-full max-w-full items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-1.5 py-1 text-left text-xs text-violet-800 transition hover:border-violet-300 hover:bg-violet-50 sm:text-sm"
+                            (click)="downloadAttachment(entry, $event)"
+                            [disabled]="uploadingAttachment()"
+                            [attr.aria-label]="t('budget.attachmentDownload')"
+                            [attr.title]="entry.attachmentFileName || t('budget.attachmentHasFile')"
+                          >
+                            <span class="fa-sharp fa-solid fa-paperclip shrink-0 text-violet-600" aria-hidden="true"></span>
+                            <span class="min-w-0 truncate">{{ entry.attachmentFileName || t('budget.attachmentHasFile') }}</span>
+                          </button>
+                          <div class="flex min-w-0 flex-wrap items-center gap-1 text-xs sm:text-sm">
+                            <button
+                              type="button"
+                              class="inline-flex items-center gap-1 rounded border border-rose-200 bg-white px-2 py-1 text-rose-700 hover:border-rose-300 hover:bg-rose-50"
+                              (click)="removeAttachment(entry, $event)"
+                              [disabled]="uploadingAttachment() || savingEdit()"
+                            >
+                              {{ t('budget.attachmentRemove') }}
+                            </button>
+                            <label
+                              class="inline-flex cursor-pointer items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1 text-violet-800 hover:border-violet-300 hover:bg-violet-50"
+                              (click)="$event.stopPropagation()"
+                            >
+                              <span class="fa-sharp fa-solid fa-paperclip text-sm leading-none" aria-hidden="true"></span>
+                              {{ t('budget.attachmentReplace') }}
+                              <input
+                                type="file"
+                                class="sr-only"
+                                accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
+                                [disabled]="uploadingAttachment() || savingEdit()"
+                                (change)="onEditAttachmentSelected(entry, $event)"
+                                (click)="$event.stopPropagation()"
+                              />
+                            </label>
+                          </div>
+                        } @else {
+                          <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-violet-800 sm:text-sm">
+                            <span class="font-medium leading-tight">{{ t('budget.attachmentOptional') }}</span>
+                            <label
+                              class="inline-flex cursor-pointer items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1.5 hover:border-violet-300 hover:bg-violet-50"
+                              (click)="$event.stopPropagation()"
+                            >
+                              <span class="fa-sharp fa-solid fa-paperclip text-sm leading-none" aria-hidden="true"></span>
+                              {{ t('budget.attachmentUpload') }}
+                              <input
+                                type="file"
+                                class="sr-only"
+                                accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
+                                [disabled]="uploadingAttachment() || savingEdit()"
+                                (change)="onEditAttachmentSelected(entry, $event)"
+                                (click)="$event.stopPropagation()"
+                              />
+                            </label>
+                          </div>
+                        }
+                      </div>
                     </td>
                     <td class="min-w-0 px-1 py-1 sm:px-2 sm:py-2">
                       <input
@@ -464,7 +560,7 @@
                         [placeholder]="t('budget.notePlaceholder')"
                       />
                     </td>
-                    <td class="min-w-0 whitespace-nowrap px-1 py-1 align-middle text-right sm:px-2 sm:py-2">
+                    <td class="app-table-actions-cell min-w-0 whitespace-nowrap py-1 align-middle text-right sm:py-2">
                       <div class="app-table-row-actions">
                         <button
                           type="button"
@@ -520,8 +616,8 @@
                       <td class="min-w-0 break-words px-2 py-2">
                         {{ entry.note ? i18n.translateSampleToken(entry.note) : '-' }}
                       </td>
-                      <td class="min-w-0 whitespace-nowrap px-1 py-2 text-right sm:px-2">
-                        @if (canManageSpendings()) {
+                      <td class="app-table-actions-cell min-w-0 whitespace-nowrap py-2 text-right">
+                        @if (canManageSpendings() && !viewport.maxSm()) {
                           <div class="app-table-row-actions">
                             <button
                               type="button"
@@ -548,53 +644,6 @@
                       </td>
                     }
                   </tr>
-                  @if (editingEntryId === entry.id && editDraft) {
-                    <tr
-                      class="border-t border-violet-100 spendings-row-editing spendings-attachment-row"
-                      (keydown.escape)="onSpendingsTableRowEscapeCancel($event, entry)"
-                    >
-                      <td colspan="7" class="px-2 py-2 sm:px-3">
-                        <div class="flex flex-wrap items-center gap-2 text-xs text-violet-800 sm:text-sm">
-                          <span class="font-medium">{{ t('budget.attachmentOptional') }}</span>
-                          @if (entry.hasAttachment) {
-                            <button
-                              type="button"
-                              class="inline-flex items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1.5 text-violet-800 hover:border-violet-300 hover:bg-violet-50"
-                              (click)="downloadAttachment(entry, $event)"
-                              [disabled]="uploadingAttachment()"
-                            >
-                              <span class="fa-sharp fa-solid fa-download text-sm leading-none" aria-hidden="true"></span>
-                              <span class="max-w-[min(16rem,50vw)] truncate">{{ entry.attachmentFileName || t('budget.attachmentHasFile') }}</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="inline-flex items-center gap-1 rounded border border-rose-200 bg-white px-2 py-1.5 text-rose-700 hover:border-rose-300 hover:bg-rose-50"
-                              (click)="removeAttachment(entry, $event)"
-                              [disabled]="uploadingAttachment() || savingEdit()"
-                            >
-                              {{ t('budget.attachmentRemove') }}
-                            </button>
-                          } @else {
-                            <span class="text-violet-600">{{ t('budget.attachmentNone') }}</span>
-                          }
-                          <label
-                            class="inline-flex cursor-pointer items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1.5 text-violet-800 hover:border-violet-300 hover:bg-violet-50"
-                          >
-                            <span class="fa-sharp fa-solid fa-paperclip text-sm leading-none" aria-hidden="true"></span>
-                            {{ entry.hasAttachment ? t('budget.attachmentReplace') : t('budget.attachmentUpload') }}
-                            <input
-                              type="file"
-                              class="sr-only"
-                              accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
-                              [disabled]="uploadingAttachment() || savingEdit()"
-                              (change)="onEditAttachmentSelected(entry, $event)"
-                              (click)="$event.stopPropagation()"
-                            />
-                          </label>
-                        </div>
-                      </td>
-                    </tr>
-                  }
                 }
                 @if (actualEntries.length === 0 && !loadingActuals() && !newEntryRowActive()) {
                   <tr>
@@ -619,7 +668,10 @@
         <div
           class="app-spendings-summary min-w-0 shrink-0 overflow-x-auto border-t-2 border-violet-200 bg-violet-100 shadow-[0_-6px_16px_-8px_rgba(91,33,182,0.18)]"
         >
-          <table class="spendings-table spendings-table-summary w-full min-w-0 text-sm">
+          <table
+            class="spendings-table spendings-table-summary w-full min-w-0 text-sm"
+            [class.spendings-table--swipe-mobile]="viewport.maxSm()"
+          >
             <colgroup>
               <col class="spendings-col-date" />
               <col class="spendings-col-position" />
@@ -632,10 +684,7 @@
             <tbody>
               <tr>
                 <td class="min-w-0 px-2 py-2.5 align-bottom sm:px-2" colspan="3">
-                  <div class="text-xs font-semibold uppercase tracking-wide text-violet-800">{{ t('budget.spendingsSumLabel') }}</div>
-                  @if (hasMoreActuals()) {
-                    <p class="mt-1 max-w-xl text-xs leading-snug text-violet-600">{{ t('budget.spendingsSumPartialHint') }}</p>
-                  }
+                  <div class="text-base font-semibold text-violet-800 sm:text-lg">{{ t('budget.spendingsSumLabel') }}</div>
                 </td>
                 <td
                   class="min-w-0 whitespace-nowrap px-2 py-2.5 text-right text-base font-semibold tabular-nums align-bottom sm:text-lg"

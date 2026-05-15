@@ -36,7 +36,18 @@
 }
 
 .spendings-col-actions {
-  width: 5.5rem;
+  width: var(--app-table-actions-col-width);
+  min-width: var(--app-table-actions-col-width);
+  max-width: var(--app-table-actions-col-width);
+}
+
+/* Collapse the actions column on compact viewports when swipe-to-delete replaces icons (expanded while adding/editing). */
+@media (max-width: 639.98px) {
+  .spendings-table--swipe-mobile:not(.spendings-table--action-expanded) col.spendings-col-actions {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+  }
 }
 
 .app-spendings-scroll .spendings-table > thead th {
@@ -54,11 +65,6 @@
   cursor: default;
   background-color: rgb(245 243 255 / 0.85);
   box-shadow: inset 3px 0 0 0 rgb(139 92 246);
-}
-
-.spendings-attachment-row td {
-  background-color: rgb(245 243 255 / 0.65);
-  box-shadow: inset 3px 0 0 0 rgb(167 139 250);
 }
 
 .spendings-count-overlay {

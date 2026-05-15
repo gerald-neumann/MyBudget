@@ -1,10 +1,19 @@
 <div class="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
   <header class="relative z-30 shrink-0 shadow-md [box-shadow:0_6px_18px_var(--app-shadow-color)]">
+    @if (!viewport.maxSm()) {
     <div
       class="flex w-full flex-col gap-3 border-b px-3 py-3 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3 sm:px-6 sm:py-4 [border-color:var(--app-border)] [background:var(--app-surface)]"
     >
       <div class="min-w-0 shrink-0">
-        <h1 class="text-lg font-semibold sm:text-xl [color:var(--app-text-strong)]">{{ t('app.title') }}</h1>
+        <h1
+          class="flex min-w-0 items-center gap-2 text-lg font-semibold sm:text-xl [color:var(--app-text-strong)]"
+        >
+          <span
+            class="fa-sharp fa-solid fa-wallet shrink-0 text-[1.05em] leading-none opacity-90 [color:var(--app-accent)]"
+            aria-hidden="true"
+          ></span>
+          <span class="min-w-0 truncate">{{ shellHeaderTitle() }}</span>
+        </h1>
       </div>
 
       <div
@@ -208,6 +217,19 @@
                     }
                   </select>
                 </div>
+                <div class="mb-3 flex flex-col items-start gap-1.5">
+                  <label class="text-xs [color:var(--app-text-muted)]" for="user-menu-table-density">{{ t('app.tableDensity') }}</label>
+                  <select
+                    id="user-menu-table-density"
+                    class="min-h-8 w-full rounded border px-1.5 py-1 text-sm [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                    [ngModel]="theme.uiDensity()"
+                    (ngModelChange)="theme.setUiDensity($event)"
+                  >
+                    @for (option of theme.uiDensityOptions; track option.id) {
+                      <option [value]="option.id">{{ t(option.labelKey) }}</option>
+                    }
+                  </select>
+                </div>
                 <button
                   type="button"
                   class="mb-2 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
@@ -215,6 +237,15 @@
                 >
                   <span class="fa-sharp fa-solid fa-circle-question leading-none" aria-hidden="true"></span>
                   {{ t('app.openHelp') }}
+                </button>
+                <button
+                  type="button"
+                  class="mb-2 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)] hover:[background-color:var(--app-surface-muted-strong)]"
+                  (click)="openAppInfoModal()"
+                  [attr.aria-label]="t('app.appInfoModalTitle')"
+                >
+                  <span class="fa-sharp fa-solid fa-circle-info leading-none" aria-hidden="true"></span>
+                  {{ t('app.openAppInfo') }}
                 </button>
                 @if (keycloakAuth.usesKeycloakAuth()) {
                   <button
@@ -267,10 +298,297 @@
         {{ t('app.accounts') }}
       </a>
     </nav>
+    }
+    @if (viewport.maxSm()) {
+      <div
+        class="flex items-center gap-2 border-b px-3 py-2 backdrop-blur-sm [border-color:var(--app-border)] [background:var(--app-surface)]"
+      >
+        <h1
+          class="flex min-w-0 flex-1 items-center gap-2 text-base font-semibold [color:var(--app-text-strong)]"
+        >
+          <span
+            class="fa-sharp fa-solid fa-wallet shrink-0 text-sm leading-none opacity-90 [color:var(--app-accent)]"
+            aria-hidden="true"
+          ></span>
+          <span class="min-w-0 truncate">{{ shellHeaderTitle() }}</span>
+        </h1>
+        <button
+          type="button"
+          class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
+          [attr.aria-expanded]="mobileAppMenuOpen()"
+          [attr.aria-label]="t('app.mobileShellOpenMenuAria')"
+          aria-controls="app-mobile-shell-panel"
+          (click)="toggleMobileShellMenu($event)"
+        >
+          <span class="fa-sharp fa-solid fa-bars text-base leading-none" aria-hidden="true"></span>
+        </button>
+      </div>
+      @if (mobileAppMenuOpen()) {
+        <div class="fixed inset-0 z-[45] flex sm:hidden" role="presentation">
+          <div
+            class="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+            (click)="closeMobileShellMenu()"
+            aria-hidden="true"
+          ></div>
+          <aside
+            id="app-mobile-shell-panel"
+            role="dialog"
+            [attr.aria-label]="t('app.mobileShellPanelAria')"
+            class="relative ml-auto flex h-full w-[min(22rem,calc(100vw-1rem))] min-w-0 flex-col border-l text-xs shadow-2xl [border-color:var(--app-border)] [background:var(--app-surface-strong)] [color:var(--app-text)]"
+            (click)="$event.stopPropagation()"
+          >
+            <div
+              class="flex items-center justify-between gap-2 border-b px-3 py-2.5 [border-color:var(--app-border-soft)]"
+            >
+              <span class="text-xs font-semibold [color:var(--app-text-strong)]">{{ t('app.mobileShellPanelAria') }}</span>
+              <button
+                type="button"
+                class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text)]"
+                (click)="closeMobileShellMenu()"
+                [attr.aria-label]="t('app.cancel')"
+              >
+                <span class="fa-sharp fa-solid fa-xmark text-sm leading-none" aria-hidden="true"></span>
+              </button>
+            </div>
+            <div
+              class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-y-contain px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+            >
+              <nav class="flex flex-col gap-1" aria-label="Primary">
+                <a
+                  routerLink="/dashboard"
+                  routerLinkActive="app-nav-link-active text-white"
+                  [routerLinkActiveOptions]="{ exact: true }"
+                  class="min-h-11 rounded-md px-3 py-2.5 text-xs font-medium [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
+                  (click)="closeMobileShellMenu()"
+                >
+                  {{ t('app.dashboard') }}
+                </a>
+                <a
+                  routerLink="/budget"
+                  routerLinkActive="app-nav-link-active text-white"
+                  class="min-h-11 rounded-md px-3 py-2.5 text-xs font-medium [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
+                  (click)="closeMobileShellMenu()"
+                >
+                  {{ t('app.nav.budgets') }}
+                </a>
+                <a
+                  routerLink="/actuals"
+                  routerLinkActive="app-nav-link-active text-white"
+                  class="min-h-11 rounded-md px-3 py-2.5 text-xs font-medium [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
+                  (click)="closeMobileShellMenu()"
+                >
+                  {{ t('app.nav.actuals') }}
+                </a>
+                <a
+                  routerLink="/accounts"
+                  routerLinkActive="app-nav-link-active text-white"
+                  class="min-h-11 rounded-md px-3 py-2.5 text-xs font-medium [color:var(--app-text)] hover:[background-color:var(--app-surface-muted-strong)]"
+                  (click)="closeMobileShellMenu()"
+                >
+                  {{ t('app.accounts') }}
+                </a>
+              </nav>
+
+              <div class="border-t pt-1 [border-color:var(--app-border-soft)]">
+                <label class="mb-1 block text-xs font-semibold [color:var(--app-text-muted)]" for="toolbar-baseline-mobile">{{
+                  t('app.sectionBaseline')
+                }}</label>
+                <select
+                  id="toolbar-baseline-mobile"
+                  class="min-h-10 w-full rounded border px-2 py-2 text-xs [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                  [ngModel]="state.selectedBaselineId()"
+                  (ngModelChange)="onToolbarBaselineSelect($event)"
+                >
+                  @for (baseline of state.baselines(); track baseline.id) {
+                    <option [value]="baseline.id">
+                      {{ i18n.translateBaselineDisplayName(baseline.name) }} ({{
+                        i18n.translateBaselineAccessKind(baseline.myAccess)
+                      }}{{
+                        baseline.myAccess === 'Owner' && baseline.isPrimaryBudget ? ', ' + t('app.baselinePrimaryShort') : ''
+                      }})
+                    </option>
+                  }
+                </select>
+              </div>
+
+              <div class="border-t pt-2 [border-color:var(--app-border-soft)]">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide [color:var(--app-text-muted)]">
+                  {{ t('app.workspaceMenuAria') }}
+                </p>
+                <div class="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md px-2 py-2 text-xs font-medium text-white [background-color:var(--app-accent)] hover:[background-color:var(--app-accent-hover)]"
+                    (click)="openNewBaselineFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-plus leading-none" aria-hidden="true"></span>
+                    {{ t('app.addBaseline') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-sky-400 px-2 py-2 text-xs font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    [disabled]="state.selectedBaseline()?.myAccess !== 'Owner'"
+                    (click)="forkFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-code-branch leading-none" aria-hidden="true"></span>
+                    {{ t('app.forkSelected') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                    [disabled]="state.selectedBaseline()?.myAccess !== 'Owner' || state.selectedBaseline()?.isSampleDemo"
+                    (click)="openRenameBaselineFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-pen leading-none" aria-hidden="true"></span>
+                    {{ t('app.renameBaseline') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                    [disabled]="
+                      state.selectedBaseline()?.myAccess !== 'Owner' ||
+                      state.selectedBaseline()?.isPrimaryBudget ||
+                      state.selectedBaseline()?.isSampleDemo
+                    "
+                    (click)="setSelectedBaselineAsDefault()"
+                  >
+                    <span class="fa-sharp fa-solid fa-star leading-none" aria-hidden="true"></span>
+                    {{ t('app.setAsDefaultBaseline') }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="border-t pt-2 [border-color:var(--app-border-soft)]">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide [color:var(--app-text-muted)]">
+                  {{ t('app.accessMenuAria') }}
+                </p>
+                <label class="mb-1 block text-xs font-medium [color:var(--app-text-muted)]" for="access-menu-invite-token-mobile">{{
+                  t('app.sectionJoinInvite')
+                }}</label>
+                <input
+                  id="access-menu-invite-token-mobile"
+                  class="mb-1.5 min-h-9 w-full rounded border px-2 py-1.5 text-xs [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                  type="text"
+                  [placeholder]="t('app.invitationTokenPlaceholder')"
+                  [(ngModel)]="invitationToken"
+                />
+                <button
+                  type="button"
+                  class="mb-3 inline-flex min-h-9 w-full items-center justify-center rounded-md border px-2 py-2 text-xs font-medium [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                  (click)="acceptInvitationFromAccessMenu()"
+                >
+                  {{ t('app.joinBaseline') }}
+                </button>
+                <div class="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)] hover:[background-color:var(--app-surface-muted-strong)]"
+                    (click)="openSharingModalFromAccessMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-user-group leading-none" aria-hidden="true"></span>
+                    {{ t('app.openSharing') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)] hover:[background-color:var(--app-surface-muted-strong)]"
+                    (click)="openSentInvitationsFromAccessMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-paper-plane leading-none" aria-hidden="true"></span>
+                    {{ t('app.openSentInvitations') }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="border-t pt-2 [border-color:var(--app-border-soft)]">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide [color:var(--app-text-muted)]">
+                  {{ t('app.userMenuAria') }}
+                </p>
+                @if (currentUserDisplayName()) {
+                  <p class="mb-2 truncate text-xs font-medium [color:var(--app-text-strong)]">{{ currentUserDisplayName() }}</p>
+                }
+                @if (keycloakAuth.usesKeycloakAuth() && sessionValidityText()) {
+                  <div
+                    class="mb-3 flex items-center justify-between gap-2 border-b pb-2 text-xs [border-color:var(--app-border-soft)] [color:var(--app-text-muted)]"
+                  >
+                    <span class="shrink-0">{{ t('app.loginTokenValidity') }}</span>
+                    <span class="font-mono tabular-nums text-xs font-medium [color:var(--app-text-strong)]">{{ sessionValidityText() }}</span>
+                  </div>
+                }
+                <div class="mb-3 flex items-center gap-2">
+                  <label class="shrink-0 text-xs [color:var(--app-text-muted)]" for="user-menu-lang-mobile">{{ t('app.language') }}</label>
+                  <select
+                    id="user-menu-lang-mobile"
+                    class="min-h-9 min-w-0 flex-1 rounded border px-1.5 py-1 text-xs [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                    [ngModel]="i18n.language()"
+                    (ngModelChange)="i18n.setLanguage($event)"
+                  >
+                    <option value="de">{{ t('app.lang.de') }}</option>
+                    <option value="en">{{ t('app.lang.en') }}</option>
+                  </select>
+                </div>
+                <div class="mb-3 flex flex-col items-start gap-1.5">
+                  <label class="text-xs [color:var(--app-text-muted)]" for="user-menu-theme-mobile">{{ t('app.theme') }}</label>
+                  <select
+                    id="user-menu-theme-mobile"
+                    class="min-h-9 w-full rounded border px-1.5 py-1 text-xs [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                    [ngModel]="theme.theme()"
+                    (ngModelChange)="theme.setTheme($event)"
+                  >
+                    @for (option of theme.options; track option.id) {
+                      <option [value]="option.id">{{ t(option.labelKey) }}</option>
+                    }
+                  </select>
+                </div>
+                <div class="mb-3 flex flex-col items-start gap-1.5">
+                  <label class="text-xs [color:var(--app-text-muted)]" for="user-menu-table-density-mobile">{{ t('app.tableDensity') }}</label>
+                  <select
+                    id="user-menu-table-density-mobile"
+                    class="min-h-9 w-full rounded border px-1.5 py-1 text-xs [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
+                    [ngModel]="theme.uiDensity()"
+                    (ngModelChange)="theme.setUiDensity($event)"
+                  >
+                    @for (option of theme.uiDensityOptions; track option.id) {
+                      <option [value]="option.id">{{ t(option.labelKey) }}</option>
+                    }
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  class="mb-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                  (click)="openHelpFromMenu()"
+                >
+                  <span class="fa-sharp fa-solid fa-circle-question leading-none" aria-hidden="true"></span>
+                  {{ t('app.openHelp') }}
+                </button>
+                <button
+                  type="button"
+                  class="mb-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)] hover:[background-color:var(--app-surface-muted-strong)]"
+                  (click)="openAppInfoModal()"
+                  [attr.aria-label]="t('app.appInfoModalTitle')"
+                >
+                  <span class="fa-sharp fa-solid fa-circle-info leading-none" aria-hidden="true"></span>
+                  {{ t('app.openAppInfo') }}
+                </button>
+                @if (keycloakAuth.usesKeycloakAuth()) {
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
+                    (click)="logoutFromMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-right-from-bracket leading-none" aria-hidden="true"></span>
+                    {{ t('app.logout') }}
+                  </button>
+                }
+              </div>
+            </div>
+          </aside>
+        </div>
+      }
+    }
   </header>
 
   <main
-    class="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-6"
+    class="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-6 sm:pt-3"
   >
     @if (state.isSampleBaselineSelected() && !shellBootstrapLoading()) {
       <div class="sample-demo-watermark" aria-hidden="true">
@@ -278,7 +596,7 @@
           <span class="sample-demo-watermark__tile">{{ t('app.sampleWatermark') }}</span>
         }
       </div>
-      <p class="sr-only">{{ t('app.sampleWatermarkHint') }}</p>
+      <p class="sr-only">{{ t('app.sampleWatermark') }}</p>
     }
     @if (shellBootstrapLoading()) {
       <div
@@ -296,26 +614,6 @@
       <router-outlet />
     }
   </main>
-
-  <footer
-    class="mt-auto shrink-0 border-t px-3 py-2 text-center sm:px-6 [border-color:var(--app-border-soft)]"
-    [attr.aria-label]="t('app.buildVersionAria')"
-  >
-    <span class="inline-block max-w-full text-xs leading-snug [color:var(--app-text-subtle)]">
-      <span class="tabular-nums">v{{ appVersion }}</span>
-      <span class="tabular-nums"> · {{ t('app.footerUiBuild') }} {{ appBuildTimestampUtc | date: 'medium' : 'UTC' }}</span>
-      @if (apiBuildInfo(); as api) {
-        @if (api.version) {
-          <span class="tabular-nums">
-            · {{ t('app.footerApiBuild') }} v{{ api.version }}
-            @if (api.buildTimestampUtc) {
-              · {{ api.buildTimestampUtc | date: 'medium' : 'UTC' }}
-            }
-          </span>
-        }
-      }
-    </span>
-  </footer>
 
   @if (newBaselineModalOpen) {
     <div
@@ -341,10 +639,10 @@
           [placeholder]="t('app.newBaselinePlaceholder')"
           autofocus
         />
-        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div class="mt-5 flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-2">
           <button
             type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:py-1.5"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:w-auto sm:py-1.5"
             (click)="tryCloseNewBaselineModal()"
           >
             <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
@@ -352,7 +650,7 @@
           </button>
           <button
             type="button"
-            class="inline-flex min-h-10 items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:py-1.5"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:w-auto sm:py-1.5"
             (click)="confirmNewBaseline()"
           >
             <span class="fa-sharp fa-solid fa-check leading-none" aria-hidden="true"></span>
@@ -389,24 +687,22 @@
           [attr.aria-label]="t('app.newBaselinePlaceholder')"
           [placeholder]="t('app.newBaselinePlaceholder')"
         />
-        <div class="mt-5 inline-flex w-full items-center justify-end gap-1 sm:w-auto">
+        <div class="mt-5 flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-2">
           <button
             type="button"
-            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-violet-200 bg-white text-violet-700 transition hover:border-violet-300 hover:bg-violet-50"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:w-auto sm:py-1.5"
             (click)="tryCloseRenameBaselineModal()"
-            [attr.aria-label]="t('app.cancel')"
-            [attr.title]="t('app.cancel')"
           >
-            <span class="fa-sharp fa-solid fa-xmark text-base leading-none" aria-hidden="true"></span>
+            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
+            {{ t('app.cancel') }}
           </button>
           <button
             type="button"
-            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 transition hover:border-emerald-400 hover:bg-emerald-100"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:w-auto sm:py-1.5"
             (click)="saveRenamedBaseline()"
-            [attr.aria-label]="t('budget.confirmEntry')"
-            [attr.title]="t('budget.confirmEntry')"
           >
-            <span class="fa-sharp fa-solid fa-check text-base leading-none" aria-hidden="true"></span>
+            <span class="fa-sharp fa-solid fa-check leading-none" aria-hidden="true"></span>
+            {{ t('app.save') }}
           </button>
         </div>
       </div>
@@ -428,17 +724,7 @@
         [attr.aria-label]="t('app.sentInvitationsModalTitle')"
         tabindex="-1"
       >
-        <div class="flex items-start justify-between gap-3">
-          <h2 class="text-lg font-semibold text-violet-900">{{ t('app.sentInvitationsModalTitle') }}</h2>
-          <button
-            type="button"
-            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-200 text-violet-700 hover:bg-violet-50"
-            [attr.aria-label]="t('app.cancel')"
-            (click)="closeSentInvitationsModal()"
-          >
-            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
-          </button>
-        </div>
+        <h2 class="text-lg font-semibold text-violet-900">{{ t('app.sentInvitationsModalTitle') }}</h2>
         @if (sentInvitationsError) {
           <p class="mt-3 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ sentInvitationsError }}</p>
         }
@@ -470,6 +756,16 @@
             }
           </ul>
         }
+        <div class="mt-6 flex justify-end border-t border-violet-100 pt-4">
+          <button
+            type="button"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:w-auto sm:py-1.5"
+            (click)="closeSentInvitationsModal()"
+          >
+            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
+            {{ t('app.close') }}
+          </button>
+        </div>
       </div>
     </div>
   }
@@ -490,17 +786,7 @@
         [attr.aria-label]="t('app.sharingModalTitle')"
         tabindex="-1"
       >
-        <div class="flex items-start justify-between gap-3">
-          <h2 class="text-lg font-semibold text-violet-900">{{ t('app.sharingModalTitle') }}</h2>
-          <button
-            type="button"
-            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-200 text-violet-700 hover:bg-violet-50"
-            [attr.aria-label]="t('app.cancel')"
-            (click)="closeSharingModal()"
-          >
-            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
-          </button>
-        </div>
+        <h2 class="text-lg font-semibold text-violet-900">{{ t('app.sharingModalTitle') }}</h2>
 
         @if (sharingModalError) {
           <p class="mt-3 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{{ sharingModalError }}</p>
@@ -595,6 +881,96 @@
             }
           </div>
         }
+        <div class="mt-6 flex justify-end border-t border-violet-100 pt-4">
+          <button
+            type="button"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:w-auto sm:py-1.5"
+            (click)="closeSharingModal()"
+          >
+            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
+            {{ t('app.close') }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (appInfoModalOpen()) {
+    <div
+      class="fixed inset-0 z-[70] flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
+      (click)="closeAppInfoModal()"
+      role="presentation"
+    >
+      <div
+        class="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-md max-h-[min(90dvh,40rem)] overflow-y-auto rounded-xl border border-violet-100 bg-white p-4 shadow-xl sm:mb-0 sm:max-h-none sm:overflow-visible sm:p-5"
+        (click)="$event.stopPropagation()"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="app-info-modal-title"
+        aria-describedby="app-info-modal-desc"
+        tabindex="-1"
+        (keydown.escape)="onAppInfoModalEscapeCancel($event)"
+        (keydown.enter)="onAppInfoModalEnterConfirm($event)"
+      >
+        <h2 id="app-info-modal-title" class="text-lg font-semibold text-violet-900">{{ t('app.appInfoModalTitle') }}</h2>
+        <p id="app-info-modal-desc" class="mt-2 text-sm leading-relaxed text-violet-700">{{ t('help.buildIntro') }}</p>
+        <dl class="mt-4 space-y-2 text-sm text-violet-900">
+          <div class="flex flex-wrap gap-x-3 gap-y-1 border-b border-violet-100 pb-2">
+            <dt class="font-medium text-violet-700">{{ t('help.uiVersionLabel') }}</dt>
+            <dd class="tabular-nums">v{{ appVersion }}</dd>
+          </div>
+          <div class="flex flex-wrap gap-x-3 gap-y-1 border-b border-violet-100 pb-2">
+            <dt class="font-medium text-violet-700">{{ t('help.uiBuildLabel') }}</dt>
+            <dd class="tabular-nums">{{ appBuildTimestampUtc | date: 'medium' : 'UTC' }} (UTC)</dd>
+          </div>
+          @if (apiBuildInfo(); as api) {
+            @if (api.version) {
+              <div class="flex flex-wrap gap-x-3 gap-y-1 border-b border-violet-100 pb-2">
+                <dt class="font-medium text-violet-700">{{ t('help.apiVersionLabel') }}</dt>
+                <dd class="tabular-nums">v{{ api.version }}</dd>
+              </div>
+              <div class="flex flex-wrap gap-x-3 gap-y-1 border-b border-violet-100 pb-2 last:mb-0 last:border-b-0 last:pb-0">
+                <dt class="font-medium text-violet-700">{{ t('help.apiBuildLabel') }}</dt>
+                <dd class="tabular-nums">
+                  @if (api.buildTimestampUtc) {
+                    {{ api.buildTimestampUtc | date: 'medium' : 'UTC' }} (UTC)
+                  } @else {
+                    {{ t('help.apiBuildUnknown') }}
+                  }
+                </dd>
+              </div>
+            } @else {
+              <p class="border-b border-violet-100 pb-2 text-sm text-violet-600 last:mb-0 last:border-b-0 last:pb-0">
+                {{ t('help.apiBuildUnavailable') }}
+              </p>
+            }
+          } @else {
+            <p class="text-sm text-violet-600">{{ t('help.apiBuildUnavailable') }}</p>
+          }
+        </dl>
+        @if (copyVersionInfoError) {
+          <p class="mt-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert">
+            {{ copyVersionInfoError }}
+          </p>
+        }
+        <div class="mt-5 flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-2">
+          <button
+            type="button"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:w-auto sm:py-1.5"
+            (click)="closeAppInfoModal()"
+          >
+            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
+            {{ t('app.close') }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:w-auto sm:py-1.5"
+            (click)="copyVersionInfoToClipboard()"
+          >
+            <span class="fa-sharp fa-solid fa-copy leading-none" aria-hidden="true"></span>
+            {{ t('app.copyVersionDetails') }}
+          </button>
+        </div>
       </div>
     </div>
   }
@@ -617,12 +993,13 @@
       >
         <h2 class="text-lg font-semibold text-violet-900">{{ t('app.sessionExpiredTitle') }}</h2>
         <p class="mt-3 text-sm text-violet-800">{{ t('app.sessionExpiredBody') }}</p>
-        <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div class="mt-5 flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-2">
           <button
             type="button"
             class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-50 sm:min-h-0 sm:w-auto sm:py-1.5"
             (click)="closeSessionExpiredModal()"
           >
+            <span class="fa-sharp fa-solid fa-xmark leading-none" aria-hidden="true"></span>
             {{ t('app.cancel') }}
           </button>
           <button
@@ -630,6 +1007,7 @@
             class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded bg-violet-500 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 sm:min-h-0 sm:w-auto sm:py-1.5"
             (click)="onSessionExpiredSignInAgain()"
           >
+            <span class="fa-sharp fa-solid fa-right-to-bracket leading-none" aria-hidden="true"></span>
             {{ t('app.sessionExpiredSignIn') }}
           </button>
         </div>

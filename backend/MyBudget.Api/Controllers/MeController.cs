@@ -13,16 +13,17 @@ public class MeController(
     BudgetDbContext dbContext) : ControllerBase
 {
     private static readonly HashSet<string> AllowedColorSchemes = ["default", "linen", "denim", "rose", "evergreen"];
+    private static readonly HashSet<string> AllowedUiDensities = ["condensed"];
 
     [HttpGet]
     public async Task<ActionResult<MeResponse>> Get(CancellationToken cancellationToken)
     {
-        var colorScheme = await dbContext.Users
+        var prefs = await dbContext.Users
             .Where(x => x.Id == userContext.UserId)
-            .Select(x => x.ColorScheme)
+            .Select(x => new { x.ColorScheme, x.UiDensity })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return Ok(new MeResponse(userContext.UserId, ResolveDisplayName(), colorScheme));
+        return Ok(new MeResponse(userContext.UserId, ResolveDisplayName(), prefs?.ColorScheme, prefs?.UiDensity));
     }
 
     [HttpPatch("preferences")]
@@ -39,6 +40,15 @@ public class MeController(
             return ValidationProblem(ModelState);
         }
 
+        var normalizedUiDensity = NormalizeUiDensity(request.UiDensity);
+        if (normalizedUiDensity is not null && !AllowedUiDensities.Contains(normalizedUiDensity))
+        {
+            ModelState.AddModelError(
+                nameof(request.UiDensity),
+                $"Unsupported UI density '{request.UiDensity}'.");
+            return ValidationProblem(ModelState);
+        }
+
         var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Id == userContext.UserId, cancellationToken);
         if (user is null)
         {
@@ -46,9 +56,10 @@ public class MeController(
         }
 
         user.ColorScheme = normalizedColorScheme;
+        user.UiDensity = normalizedUiDensity;
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return Ok(new MeResponse(userContext.UserId, ResolveDisplayName(), user.ColorScheme));
+        return Ok(new MeResponse(userContext.UserId, ResolveDisplayName(), user.ColorScheme, user.UiDensity));
     }
 
     private string ResolveDisplayName()
@@ -70,8 +81,18 @@ public class MeController(
 
         return colorScheme.Trim().ToLowerInvariant();
     }
+
+    private static string? NormalizeUiDensity(string? uiDensity)
+    {
+        if (string.IsNullOrWhiteSpace(uiDensity))
+        {
+            return null;
+        }
+
+        return uiDensity.Trim().ToLowerInvariant();
+    }
 }
 
-public sealed record MeResponse(Guid UserId, string DisplayName, string? ColorScheme);
+public sealed record MeResponse(Guid UserId, string DisplayName, string? ColorScheme, string? UiDensity);
 
-public sealed record UpdateMePreferencesRequest(string? ColorScheme);
+public sealed record UpdateMePreferencesRequest(string? ColorScheme, string? UiDensity);

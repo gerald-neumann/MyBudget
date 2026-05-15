@@ -1,12 +1,13 @@
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, effect, ElementRef, HostListener, inject, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, effect, HostListener, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { bufferTime, catchError, defer, EMPTY, filter, finalize, forkJoin, map, of, Subject, switchMap, tap } from 'rxjs';
 import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
+import { ViewportService } from '../core/viewport.service';
 import {
   KeyboardAddShortcutService,
   registerPageKeyboardAddShortcut
@@ -24,19 +25,22 @@ import { BudgetCadence, BudgetPosition, Category } from '../core/budget.models';
   selector: 'app-budget-page',
   imports: [CommonModule, FormsModule],
   templateUrl: './budget-page.component.html',
-  styleUrl: './budget-page.component.css'
+  styleUrl: './budget-page.component.css',
+  host: {
+    '[class.budget-page--max-sm]': 'viewport.maxSm()'
+  }
 })
 export class BudgetPageComponent {
   private readonly api = inject(BudgetApiService);
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
+  readonly viewport = inject(ViewportService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly documentRef = inject(DOCUMENT);
   private readonly keyboardAdd = inject(KeyboardAddShortcutService);
 
   yearToolbarLabelClasses(): string {
-    return this.state.isSelectedYearOffCalendar()
-      ? 'select-none inline-flex items-center gap-1 text-xs font-semibold text-amber-900'
-      : 'select-none text-xs font-medium text-violet-600';
+    return 'select-none inline-flex items-center gap-1 text-xs font-semibold text-amber-900';
   }
 
   yearToolbarInputClasses(): string {
@@ -48,15 +52,15 @@ export class BudgetPageComponent {
     return `${base} border-violet-200 bg-violet-50 text-violet-900`;
   }
 
-  private readonly budgetHelpWrap = viewChild<ElementRef<HTMLElement>>('budgetHelpWrap');
-  readonly budgetHelpTouchOpen = signal(false);
+  /** Header actions (add position, year) behind a toggle on compact viewports. */
+  readonly budgetPageToolsOpen = signal(false);
 
   /** Incremented to re-fetch categories/positions when baseline/year are unchanged (e.g. after server-side mutations). */
   private readonly budgetDataReload = signal(0);
 
   readonly months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-  readonly cadences: BudgetCadence[] = ['None', 'Monthly', 'Yearly'];
+  readonly cadences: BudgetCadence[] = ['None', 'Monthly', 'Yearly', 'EveryNMonths'];
 
   categories: Category[] = [];
   positions: BudgetPosition[] = [];
@@ -80,7 +84,8 @@ export class BudgetPageComponent {
     cadence: 'Monthly' as BudgetCadence,
     startDate: this.toDateInput(new Date()),
     endDate: '' as string | null,
-    defaultAmount: 0
+    defaultAmount: 0,
+    recurrenceIntervalMonths: 3
   };
 
   /** Bottom sheet / compact dialog for creating a position (keeps the table uncluttered on small screens). */
@@ -103,6 +108,7 @@ export class BudgetPageComponent {
     startDate: string;
     endDate: string;
     defaultAmount: number;
+    recurrenceIntervalMonths: number;
   } | null = null;
 
   /** How planned grid cells are aligned to the template when cadence/amount/dates change (recurring lines). */
@@ -228,6 +234,10 @@ export class BudgetPageComponent {
       this.i18n.language();
       this.amountEdit = null;
     });
+
+    const onBudgetPointerDownCapture = (ev: Event) => this.onDocumentPointerDownBudgetInlineCancel(ev);
+    this.documentRef.addEventListener('pointerdown', onBudgetPointerDownCapture, true);
+    this.destroyRef.onDestroy(() => this.documentRef.removeEventListener('pointerdown', onBudgetPointerDownCapture, true));
   }
 
   selectedBaselineAccess(): 'None' | 'Viewer' | 'Editor' | 'Owner' {
@@ -316,8 +326,13 @@ export class BudgetPageComponent {
       return;
     }
     event.preventDefault();
-    t.value = position.name;
-    t.blur();
+    this.applyBudgetPositionNameEscapeDismissal(position, t);
+  }
+
+  /** Same outcome as Escape on the inline name field (shared with pointer-outside). */
+  private applyBudgetPositionNameEscapeDismissal(position: BudgetPosition, input: HTMLInputElement): void {
+    input.value = position.name;
+    input.blur();
   }
 
   /** Escape on an in-table amount field discards the draft without persisting. */
@@ -330,11 +345,99 @@ export class BudgetPageComponent {
       return;
     }
     event.preventDefault();
+    this.applyBudgetCellAmountEscapeDismissal(position, month, t);
+  }
+
+  /** Same outcome as Escape on the planned-amount cell (shared with pointer-outside). */
+  private applyBudgetCellAmountEscapeDismissal(position: BudgetPosition, month: number, input: HTMLInputElement): void {
     if (this.amountEdit?.kind === 'cell' && this.amountEdit.positionId === position.id && this.amountEdit.month === month) {
       this.amountEdit = null;
     }
-    t.value = this.i18n.formatAmount(this.getCellDisplayAmount(position, month));
-    t.blur();
+    input.value = this.i18n.formatAmount(this.getCellDisplayAmount(position, month));
+    input.blur();
+  }
+
+  /**
+   * Backdrop click follows the same ordering as document Escape on the budget page:
+   * dismiss category suggest first, then tryClose the sheet.
+   */
+  onBudgetSheetBackdropDismissLikeEscape(mode: 'new' | 'edit', event: Event): void {
+    if (this.categorySuggestOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.clearCategorySuggestCloseTimer();
+      this.categorySuggestOpen = null;
+      this.categorySuggestRect = null;
+      return;
+    }
+    if (mode === 'new') {
+      void this.tryCloseBudgetSheetFromEscapeLikeInteraction('new');
+    } else {
+      void this.tryCloseBudgetSheetFromEscapeLikeInteraction('edit');
+    }
+  }
+
+  /** Pointer outside an inline grid cell: same outcome as Escape on that field (primary button only). */
+  onDocumentPointerDownBudgetInlineCancel(ev: Event): void {
+    if (!(ev instanceof PointerEvent) || ev.button !== 0) {
+      return;
+    }
+    const target = ev.target;
+    if (!(target instanceof Node)) {
+      return;
+    }
+
+    const suggestPanel = typeof document !== 'undefined' ? document.getElementById('budget-category-suggest') : null;
+    if (suggestPanel?.contains(target)) {
+      return;
+    }
+    const openSuggest = this.categorySuggestOpen;
+    if (openSuggest && (openSuggest.input === target || openSuggest.input.contains(target))) {
+      return;
+    }
+
+    const ctx = this.amountEdit;
+    if (ctx?.kind === 'cell') {
+      const cellInput =
+        typeof document !== 'undefined'
+          ? document.querySelector<HTMLInputElement>(
+              `input[data-budget-planned-amount="${CSS.escape(ctx.positionId)}:${ctx.month}"]`
+            )
+          : null;
+      if (!cellInput || document.activeElement !== cellInput) {
+        return;
+      }
+      const cellTd = cellInput.closest('td');
+      if (cellTd?.contains(target)) {
+        return;
+      }
+      const position = this.positions.find((p) => p.id === ctx.positionId);
+      if (!position) {
+        return;
+      }
+      ev.preventDefault();
+      this.applyBudgetCellAmountEscapeDismissal(position, ctx.month, cellInput);
+      return;
+    }
+
+    const active = document.activeElement;
+    if (!(active instanceof HTMLInputElement)) {
+      return;
+    }
+    const pid = active.dataset['budgetPositionName'];
+    if (!pid) {
+      return;
+    }
+    const position = this.positions.find((p) => p.id === pid);
+    if (!position || position.cadence !== 'None') {
+      return;
+    }
+    const nameTd = active.closest('td');
+    if (nameTd?.contains(target)) {
+      return;
+    }
+    ev.preventDefault();
+    this.applyBudgetPositionNameEscapeDismissal(position, active);
   }
 
   onCellAmountFocus(position: BudgetPosition, month: number): void {
@@ -484,9 +587,10 @@ export class BudgetPageComponent {
     return this.i18n.translateCategoryName(raw);
   }
 
-  /** Position + months + total + action. */
+  /** Position + months + total + optional action column (hidden on compact viewports). */
   tableDataColumnCount(): number {
-    return 1 + this.months.length + 2;
+    const actionCols = this.viewport.maxSm() ? 0 : 1;
+    return 1 + this.months.length + 1 + actionCols;
   }
 
   /**
@@ -560,6 +664,17 @@ export class BudgetPageComponent {
     this.updateSuggestRect(input);
   }
 
+  /** Clears the category text and reopens the suggestion list with the full set (no filter). */
+  clearCategoryField(mode: 'new' | 'edit', input: HTMLInputElement): void {
+    this.clearCategorySuggestCloseTimer();
+    if (mode === 'new') {
+      this.newPosition.categoryName = '';
+    } else if (this.editPositionDraft) {
+      this.editPositionDraft = { ...this.editPositionDraft, categoryName: '' };
+    }
+    this.openCategorySuggest(input, mode);
+  }
+
   refreshSuggestRect(input: HTMLInputElement): void {
     const open = this.categorySuggestOpen;
     if (open?.input === input) {
@@ -626,48 +741,6 @@ export class BudgetPageComponent {
       this.tryCloseNewPositionSheet();
       return;
     }
-    if (this.budgetHelpTouchOpen()) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.budgetHelpTouchOpen.set(false);
-    }
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocumentClickCloseBudgetHelp(ev: MouseEvent): void {
-    if (!this.budgetHelpTouchOpen()) {
-      return;
-    }
-    const wrap = this.budgetHelpWrap()?.nativeElement;
-    if (!wrap) {
-      return;
-    }
-    if (wrap.contains(ev.target as Node)) {
-      return;
-    }
-    this.budgetHelpTouchOpen.set(false);
-  }
-
-  onBudgetHelpClick(ev: MouseEvent): void {
-    if (this.budgetHelpUsesHoverTooltip()) {
-      return;
-    }
-    ev.stopPropagation();
-    this.budgetHelpTouchOpen.update((open) => !open);
-  }
-
-  budgetHelpAriaExpanded(): boolean | null {
-    if (this.budgetHelpUsesHoverTooltip()) {
-      return null;
-    }
-    return this.budgetHelpTouchOpen();
-  }
-
-  private budgetHelpUsesHoverTooltip(): boolean {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return true;
-    }
-    return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   }
 
   openNewPositionSheet(): void {
@@ -719,6 +792,7 @@ export class BudgetPageComponent {
     this.newPosition.endDate = '';
     this.newPositionSheetBanner = '';
     this.newPosition.defaultAmount = 0;
+    this.newPosition.recurrenceIntervalMonths = 3;
     if (this.amountEdit?.kind === 'newDefault') {
       this.amountEdit = null;
     }
@@ -742,7 +816,12 @@ export class BudgetPageComponent {
     const trimmedCat = this.newPosition.categoryName.trim();
     const cat = this.findCategoryByStoredOrTranslatedLabel(trimmedCat);
     const categoryKey = cat?.id ?? `new:${trimmedCat.toLowerCase()}`;
-    const endDate = (this.newPosition.endDate ?? '').trim() === '' ? null : String(this.newPosition.endDate).trim();
+    const endDate =
+      this.newPosition.cadence === 'None'
+        ? null
+        : (this.newPosition.endDate ?? '').trim() === ''
+          ? null
+          : String(this.newPosition.endDate).trim();
     const amt = this.effectiveNewPositionDefaultAmount();
     const amtKey = Math.round(Number(amt) * 1e9) / 1e9;
     return JSON.stringify({
@@ -751,7 +830,9 @@ export class BudgetPageComponent {
       cadence: this.newPosition.cadence,
       startDate: this.newPosition.startDate,
       endDate,
-      defaultAmount: amtKey
+      defaultAmount: amtKey,
+      recurrenceIntervalMonths:
+        this.newPosition.cadence === 'EveryNMonths' ? this.newPosition.recurrenceIntervalMonths : null
     });
   }
 
@@ -789,8 +870,9 @@ export class BudgetPageComponent {
       categoryName: this.categoryName(position.categoryId),
       cadence: position.cadence,
       startDate: position.startDate,
-      endDate: position.endDate ?? '',
-      defaultAmount: position.defaultAmount
+      endDate: position.cadence === 'None' ? '' : (position.endDate ?? ''),
+      defaultAmount: position.defaultAmount,
+      recurrenceIntervalMonths: this.normalizeRecurrenceIntervalMonths(position.recurrenceRule?.intervalMonths ?? 3)
     };
     this.editPositionPlannedApplyScope = 'all';
     const y = this.state.selectedYear();
@@ -880,7 +962,8 @@ export class BudgetPageComponent {
     const trimmedCat = d.categoryName.trim();
     const cat = this.findCategoryByStoredOrTranslatedLabel(trimmedCat);
     const categoryKey = cat?.id ?? `new:${trimmedCat.toLowerCase()}`;
-    const endDate = d.endDate.trim() === '' ? null : d.endDate.trim();
+    const endDate =
+      d.cadence === 'None' ? null : d.endDate.trim() === '' ? null : d.endDate.trim();
     const amt = this.effectiveEditDefaultStoredAmount(d, position);
     const amtKey = Math.round(Number(amt) * 1e9) / 1e9;
     return JSON.stringify({
@@ -890,6 +973,7 @@ export class BudgetPageComponent {
       startDate: d.startDate,
       endDate,
       defaultAmount: amtKey,
+      recurrenceIntervalMonths: d.cadence === 'EveryNMonths' ? d.recurrenceIntervalMonths : null,
       plannedScope: this.editPositionPlannedApplyScope,
       plannedFrom: this.editPositionPlannedApplyFrom.trim(),
       plannedTo: this.editPositionPlannedApplyTo.trim()
@@ -960,7 +1044,7 @@ export class BudgetPageComponent {
       }
       event.preventDefault();
       event.stopPropagation();
-      this.tryCloseNewPositionSheet();
+      this.tryCloseBudgetSheetFromEscapeLikeInteraction('new');
       return;
     }
     if (this.editPositionSurface !== 'modal' || !this.editPositionDraft) {
@@ -968,7 +1052,15 @@ export class BudgetPageComponent {
     }
     event.preventDefault();
     event.stopPropagation();
-    void this.tryCloseEditPositionSheet();
+    this.tryCloseBudgetSheetFromEscapeLikeInteraction('edit');
+  }
+
+  private tryCloseBudgetSheetFromEscapeLikeInteraction(mode: 'new' | 'edit'): void {
+    if (mode === 'new') {
+      void this.tryCloseNewPositionSheet();
+    } else {
+      void this.tryCloseEditPositionSheet();
+    }
   }
 
   private syncEditDraftFromPosition(pos: BudgetPosition): void {
@@ -982,8 +1074,9 @@ export class BudgetPageComponent {
       categoryName: this.categoryName(pos.categoryId),
       cadence: pos.cadence,
       startDate: pos.startDate,
-      endDate: pos.endDate ?? '',
-      defaultAmount: pos.defaultAmount
+      endDate: pos.cadence === 'None' ? '' : (pos.endDate ?? ''),
+      defaultAmount: pos.defaultAmount,
+      recurrenceIntervalMonths: this.normalizeRecurrenceIntervalMonths(pos.recurrenceRule?.intervalMonths ?? 3)
     };
   }
 
@@ -1022,6 +1115,23 @@ export class BudgetPageComponent {
   onEditPositionCadenceChange(cadence: BudgetCadence): void {
     if (cadence === 'None') {
       this.editPositionPlannedApplyScope = 'all';
+      if (this.editPositionDraft) {
+        this.editPositionDraft.endDate = '';
+      }
+    } else if (cadence === 'EveryNMonths' && this.editPositionDraft) {
+      this.editPositionDraft.recurrenceIntervalMonths = this.normalizeRecurrenceIntervalMonths(
+        this.editPositionDraft.recurrenceIntervalMonths
+      );
+    }
+  }
+
+  onNewPositionCadenceChange(cadence: BudgetCadence): void {
+    if (cadence === 'None') {
+      this.newPosition.endDate = '';
+    } else if (cadence === 'EveryNMonths') {
+      this.newPosition.recurrenceIntervalMonths = this.normalizeRecurrenceIntervalMonths(
+        this.newPosition.recurrenceIntervalMonths
+      );
     }
   }
 
@@ -1054,6 +1164,13 @@ export class BudgetPageComponent {
   newPositionDefaultAmountInvalid(): boolean {
     const e = this.amountEdit;
     return e?.kind === 'newDefault' && this.isUnparseableAmountDraft(e.draft);
+  }
+
+  newPositionRecurrenceIntervalInvalid(): boolean {
+    if (this.newPosition.cadence !== 'EveryNMonths') {
+      return false;
+    }
+    return this.isRecurrenceIntervalMonthsInvalid(this.newPosition.recurrenceIntervalMonths);
   }
 
   editPositionNameInvalid(): boolean {
@@ -1117,7 +1234,8 @@ export class BudgetPageComponent {
       this.newPositionCategoryInvalid() ||
       this.newPositionStartInvalid() ||
       this.newPositionEndBeforeStartInvalid() ||
-      this.newPositionDefaultAmountInvalid()
+      this.newPositionDefaultAmountInvalid() ||
+      this.newPositionRecurrenceIntervalInvalid()
     );
   }
 
@@ -1132,8 +1250,17 @@ export class BudgetPageComponent {
       !String(d.startDate ?? '').trim() ||
       this.editPositionEndBeforeStartInvalid() ||
       this.editPositionDefaultAmountInvalid() ||
-      this.editPositionPlannedApplyRangeInvalid()
+      this.editPositionPlannedApplyRangeInvalid() ||
+      this.editPositionRecurrenceIntervalInvalid()
     );
+  }
+
+  editPositionRecurrenceIntervalInvalid(): boolean {
+    const d = this.editPositionDraft;
+    if (!d || d.cadence !== 'EveryNMonths') {
+      return false;
+    }
+    return this.isRecurrenceIntervalMonthsInvalid(d.recurrenceIntervalMonths);
   }
 
   saveEditPosition(): void {
@@ -1163,7 +1290,7 @@ export class BudgetPageComponent {
       this.amountEdit?.kind === 'editDefault' && this.amountEdit.positionId === draft.id
         ? this.i18n.parseAmount(this.amountEdit.draft)
         : null;
-    const endDate: string | null = draft.endDate.trim() === '' ? null : draft.endDate;
+    const endDate: string | null = draft.cadence === 'None' ? null : draft.endDate.trim() === '' ? null : draft.endDate;
 
     this.resolveCategoryId$(categoryName)
       .pipe(
@@ -1177,7 +1304,8 @@ export class BudgetPageComponent {
             draft.cadence !== position.cadence ||
             draft.startDate !== position.startDate ||
             endDate !== (position.endDate ?? null) ||
-            Math.abs(Number(defaultAmount) - Number(position.defaultAmount)) > 1e-9;
+            Math.abs(Number(defaultAmount) - Number(position.defaultAmount)) > 1e-9 ||
+            this.recurrenceIntervalTemplateChanged(draft, position);
 
           if (templateDriveChanged && draft.cadence !== 'None' && this.editPositionPlannedApplyScope === 'dateRange') {
             const from = this.editPositionPlannedApplyFrom.trim();
@@ -1215,6 +1343,7 @@ export class BudgetPageComponent {
       startDate: string;
       endDate: string;
       defaultAmount: number;
+      recurrenceIntervalMonths: number;
     },
     categoryId: string,
     defaultAmount: number,
@@ -1227,13 +1356,15 @@ export class BudgetPageComponent {
       cadence: draft.cadence,
       startDate: draft.startDate,
       endDate,
-      defaultAmount
+      defaultAmount,
+      recurrenceIntervalMonths: draft.recurrenceIntervalMonths
     });
     const templateDriveChanged =
       draft.cadence !== position.cadence ||
       draft.startDate !== position.startDate ||
       endDate !== (position.endDate ?? null) ||
-      Math.abs(Number(defaultAmount) - Number(position.defaultAmount)) > 1e-9;
+      Math.abs(Number(defaultAmount) - Number(position.defaultAmount)) > 1e-9 ||
+      this.recurrenceIntervalTemplateChanged(draft, position);
     if (!templateDriveChanged) {
       return base;
     }
@@ -1278,9 +1409,14 @@ export class BudgetPageComponent {
             name: positionName,
             cadence: this.newPosition.cadence,
             startDate: this.newPosition.startDate,
-            endDate: this.newPosition.endDate || null,
+            endDate: this.newPosition.cadence === 'None' ? null : this.newPosition.endDate || null,
             defaultAmount: this.toStoredPlannedAmount(categoryId, this.effectiveNewPositionDefaultAmount()),
-            sortOrder: this.positions.length + 1
+            sortOrder: this.positions.length + 1,
+            ...(this.newPosition.cadence === 'EveryNMonths'
+              ? {
+                  intervalMonths: this.normalizeRecurrenceIntervalMonths(this.newPosition.recurrenceIntervalMonths)
+                }
+              : {})
           })
         )
       )
@@ -1367,6 +1503,18 @@ export class BudgetPageComponent {
     return this.deletingPositionIds.has(positionId);
   }
 
+  deleteEditingPositionFromModal(): void {
+    const draft = this.editPositionDraft;
+    if (!draft || !this.canManageSelectedBaseline()) {
+      return;
+    }
+    const position = this.positions.find((p) => p.id === draft.id);
+    if (!position) {
+      return;
+    }
+    this.deletePosition(position);
+  }
+
   deletePosition(position: BudgetPosition): void {
     if (!this.canManageSelectedBaseline()) {
       return;
@@ -1409,11 +1557,16 @@ export class BudgetPageComponent {
   }
 
   cadenceLabel(cadence: BudgetCadence): string {
-    return cadence === 'None'
-      ? this.t('budget.none')
-      : cadence === 'Monthly'
-        ? this.t('budget.monthly')
-        : this.t('budget.yearly');
+    if (cadence === 'None') {
+      return this.t('budget.none');
+    }
+    if (cadence === 'Monthly') {
+      return this.t('budget.monthly');
+    }
+    if (cadence === 'Yearly') {
+      return this.t('budget.yearly');
+    }
+    return this.t('budget.everyNMonths');
   }
 
   t(key: string, params?: Record<string, string | number>): string {
@@ -1515,10 +1668,41 @@ export class BudgetPageComponent {
     return date.toISOString().slice(0, 10);
   }
 
+  private isRecurrenceIntervalMonthsInvalid(n: number): boolean {
+    const x = Number(n);
+    if (!Number.isFinite(x)) {
+      return true;
+    }
+    const rounded = Math.round(x);
+    return rounded < 2 || rounded > 24;
+  }
+
+  private normalizeRecurrenceIntervalMonths(n: number): number {
+    const x = Math.round(Number(n));
+    if (!Number.isFinite(x)) {
+      return 3;
+    }
+    return Math.min(24, Math.max(2, x));
+  }
+
+  private recurrenceIntervalTemplateChanged(
+    draft: { cadence: BudgetCadence; recurrenceIntervalMonths: number },
+    position: BudgetPosition
+  ): boolean {
+    const d =
+      draft.cadence === 'EveryNMonths' ? this.normalizeRecurrenceIntervalMonths(draft.recurrenceIntervalMonths) : null;
+    const p =
+      position.cadence === 'EveryNMonths'
+        ? this.normalizeRecurrenceIntervalMonths(position.recurrenceRule?.intervalMonths ?? 3)
+        : null;
+    return d !== p;
+  }
+
   private patchPayload(
     position: BudgetPosition,
     overrides: Partial<Pick<BudgetPosition, 'categoryId' | 'name' | 'cadence' | 'startDate' | 'defaultAmount' | 'sortOrder'>> & {
       endDate?: string | null;
+      recurrenceIntervalMonths?: number;
     }
   ): {
     categoryId: string;
@@ -1528,9 +1712,19 @@ export class BudgetPageComponent {
     endDate?: string | null;
     defaultAmount: number;
     sortOrder: number;
+    intervalMonths?: number;
   } {
     const merged = { ...position, ...overrides };
-    return {
+    const payload: {
+      categoryId: string;
+      name: string;
+      cadence: BudgetCadence;
+      startDate: string;
+      endDate?: string | null;
+      defaultAmount: number;
+      sortOrder: number;
+      intervalMonths?: number;
+    } = {
       categoryId: merged.categoryId,
       name: merged.name.trim(),
       cadence: merged.cadence,
@@ -1539,6 +1733,12 @@ export class BudgetPageComponent {
       defaultAmount: Number(merged.defaultAmount) || 0,
       sortOrder: merged.sortOrder
     };
+    if (merged.cadence === 'EveryNMonths') {
+      payload.intervalMonths = this.normalizeRecurrenceIntervalMonths(
+        overrides.recurrenceIntervalMonths ?? position.recurrenceRule?.intervalMonths ?? 3
+      );
+    }
+    return payload;
   }
 
   private applyPositionUpdate(position: BudgetPosition, updated: BudgetPosition): void {

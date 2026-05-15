@@ -22,6 +22,7 @@ public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbCont
             entity.HasKey(x => x.Id);
             entity.Property(x => x.DisplayName).HasMaxLength(200);
             entity.Property(x => x.ColorScheme).HasMaxLength(32);
+            entity.Property(x => x.UiDensity).HasMaxLength(32);
         });
 
         modelBuilder.Entity<Category>(entity =>

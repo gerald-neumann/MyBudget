@@ -11,11 +11,13 @@ public sealed record BudgetRecurrenceRule(
     BudgetCadence Cadence,
     DateOnly StartDate,
     DateOnly? EndDate,
-    decimal DefaultAmount)
+    decimal DefaultAmount,
+    int? IntervalMonths = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
@@ -33,7 +35,7 @@ public sealed record BudgetRecurrenceRule(
                 var parsed = JsonSerializer.Deserialize<BudgetRecurrenceRule>(recurrenceRuleJson, JsonOptions);
                 if (parsed is not null)
                 {
-                    return parsed;
+                    return Normalize(cadence, startDate, endDate, defaultAmount, parsed);
                 }
             }
             catch (JsonException)
@@ -42,13 +44,16 @@ public sealed record BudgetRecurrenceRule(
             }
         }
 
-        return new BudgetRecurrenceRule(cadence, startDate, endDate, defaultAmount);
+        return new BudgetRecurrenceRule(cadence, startDate, endDate, defaultAmount, null);
     }
 
-    public static string ToJson(BudgetCadence cadence, DateOnly startDate, DateOnly? endDate, decimal defaultAmount)
+    /// <summary>Serializes a resolved rule (preferred when copying or persisting after <see cref="Resolve"/>).</summary>
+    public static string ToJson(BudgetRecurrenceRule rule) => JsonSerializer.Serialize(rule, JsonOptions);
+
+    public static string ToJson(BudgetCadence cadence, DateOnly startDate, DateOnly? endDate, decimal defaultAmount, int? intervalMonths = null)
     {
-        var rule = new BudgetRecurrenceRule(cadence, startDate, endDate, defaultAmount);
-        return JsonSerializer.Serialize(rule, JsonOptions);
+        var interval = cadence == BudgetCadence.EveryNMonths ? intervalMonths : null;
+        return ToJson(new BudgetRecurrenceRule(cadence, startDate, endDate, defaultAmount, interval));
     }
 
     public static IEnumerable<int> GetExpectedMonths(BudgetRecurrenceRule rule, int year)
@@ -73,7 +78,34 @@ public sealed record BudgetRecurrenceRule(
             BudgetCadence.Yearly => rule.StartDate.Month >= firstMonth && rule.StartDate.Month <= lastMonth
                 ? new[] { rule.StartDate.Month }
                 : Enumerable.Empty<int>(),
+            BudgetCadence.EveryNMonths => GetEveryNMonthsInYear(rule.StartDate, firstMonth, lastMonth, year, rule.IntervalMonths ?? 2),
             _ => rule.StartDate.Year == year ? new[] { rule.StartDate.Month } : Enumerable.Empty<int>()
         };
+    }
+
+    private static BudgetRecurrenceRule Normalize(
+        BudgetCadence columnCadence,
+        DateOnly columnStart,
+        DateOnly? columnEnd,
+        decimal columnAmount,
+        BudgetRecurrenceRule parsed)
+    {
+        // Prefer authoritative columns for identity fields; keep interval from JSON when cadence matches.
+        var cadence = columnCadence;
+        var interval = cadence == BudgetCadence.EveryNMonths ? parsed.IntervalMonths : null;
+        return new BudgetRecurrenceRule(cadence, columnStart, columnEnd, columnAmount, interval);
+    }
+
+    private static IEnumerable<int> GetEveryNMonthsInYear(DateOnly anchorStart, int firstMonth, int lastMonth, int year, int intervalMonths)
+    {
+        var n = Math.Clamp(intervalMonths, 2, 24);
+        for (var month = firstMonth; month <= lastMonth; month++)
+        {
+            var offsetMonths = (year - anchorStart.Year) * 12 + (month - anchorStart.Month);
+            if (offsetMonths >= 0 && offsetMonths % n == 0)
+            {
+                yield return month;
+            }
+        }
     }
 }

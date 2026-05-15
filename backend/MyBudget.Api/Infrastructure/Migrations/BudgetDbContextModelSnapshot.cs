@@ -152,6 +152,11 @@ namespace MyBudget.Api.Infrastructure.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("color_scheme");
 
+                    b.Property<string>("UiDensity")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("ui_density");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(200)

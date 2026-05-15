@@ -1,4 +1,4 @@
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, DatePipe, DOCUMENT } from '@angular/common';
 import { Component, DestroyRef, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -8,6 +8,8 @@ import { debounceTime, finalize } from 'rxjs/operators';
 import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
+import { ViewportService } from '../core/viewport.service';
+import { SwipeDeleteRowDirective } from '../core/swipe-delete-row.directive';
 import { Account, ActualEntry, BudgetPosition, Category } from '../core/budget.models';
 import {
   KeyboardAddShortcutService,
@@ -48,7 +50,7 @@ type ActualEditDraft = {
 
 @Component({
   selector: 'app-spendings-page',
-  imports: [CommonModule, FormsModule, DatePipe],
+  imports: [CommonModule, FormsModule, DatePipe, SwipeDeleteRowDirective],
   templateUrl: './spendings-page.component.html',
   styleUrl: './spendings-page.component.css'
 })
@@ -56,8 +58,10 @@ export class SpendingsPageComponent {
   private readonly api = inject(BudgetApiService);
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
+  readonly viewport = inject(ViewportService);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly documentRef = inject(DOCUMENT);
   private readonly keyboardAdd = inject(KeyboardAddShortcutService);
   private readonly drillDownQuery = toSignal(this.route.queryParamMap, {
     initialValue: this.route.snapshot.queryParamMap
@@ -74,6 +78,9 @@ export class SpendingsPageComponent {
   actualBookingYears: number[] = [];
   private actualsSkip = 0;
   readonly pageSize = 50;
+
+  /** Full ledger filter panel; collapsed by default (all viewports). */
+  readonly spendingsFiltersOpen = signal(false);
 
   readonly loading = signal(false);
   readonly loadingActuals = signal(false);
@@ -150,6 +157,10 @@ export class SpendingsPageComponent {
         this.loadActualsFromStart();
       }
     });
+
+    const onSpendingsPointerDownCapture = (ev: Event) => this.onDocumentPointerDownSpendingsCancel(ev);
+    this.documentRef.addEventListener('pointerdown', onSpendingsPointerDownCapture, true);
+    this.destroyRef.onDestroy(() => this.documentRef.removeEventListener('pointerdown', onSpendingsPointerDownCapture, true));
 
     effect((onCleanup) => {
       const baselineId = this.state.selectedBaselineId();
@@ -305,24 +316,6 @@ export class SpendingsPageComponent {
       return this.t('budget.addActualExpense');
     }
     return this.t('budget.addActual');
-  }
-
-  newActualAmountPlaceholder(): string {
-    if (!this.newActual.budgetPositionId) {
-      return this.t('budget.amountPlaceholder');
-    }
-    return this.isIncomePositionId(this.newActual.budgetPositionId)
-      ? this.t('budget.amountHintIncome')
-      : this.t('budget.amountHintExpense');
-  }
-
-  editAmountPlaceholder(): string {
-    if (!this.editDraft?.budgetPositionId) {
-      return this.t('budget.amountPlaceholder');
-    }
-    return this.isIncomePositionId(this.editDraft.budgetPositionId)
-      ? this.t('budget.amountHintIncome')
-      : this.t('budget.amountHintExpense');
   }
 
   newActualAmountColorClass(): string {
@@ -810,7 +803,7 @@ export class SpendingsPageComponent {
     return v > 0 ? -v : v;
   }
 
-  /** Sum of display amounts for currently loaded rows (see `budget.spendingsSumPartialHint` when more pages exist). */
+  /** Sum of display amounts for currently loaded rows (may differ from full list total while pagination is in progress). */
   loadedActualsDisplaySum(): number {
     return this.actualEntries.reduce((sum, e) => sum + this.displayAmountForEntry(e), 0);
   }
@@ -1007,6 +1000,21 @@ export class SpendingsPageComponent {
       });
   }
 
+  spendingsActionsColumnExpanded(): boolean {
+    return this.newEntryRowActive() || this.editingEntryId !== null;
+  }
+
+  swipeDeleteSpendingsRowEnabled(entry: ActualEntry): boolean {
+    return (
+      this.viewport.maxSm() &&
+      this.canManageSpendings() &&
+      this.editingEntryId !== entry.id &&
+      !this.savingEdit() &&
+      !this.savingNewEntry() &&
+      this.deletingEntryId() !== entry.id
+    );
+  }
+
   hasMoreActuals(): boolean {
     return this.actualEntries.length < this.actualsTotalCount;
   }
@@ -1098,6 +1106,43 @@ export class SpendingsPageComponent {
     this.flushEditingSave();
   }
 
+  /** Click outside the active new/edit row: same outcome as Escape on that row. Primary button only. */
+  onDocumentPointerDownSpendingsCancel(ev: Event): void {
+    if (!(ev instanceof PointerEvent) || ev.button !== 0) {
+      return;
+    }
+    const target = ev.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    if (target.closest('.spendings-row-editing')) {
+      return;
+    }
+    if (!this.editingEntryId && !this.newEntryRowActive()) {
+      return;
+    }
+
+    if (this.editingEntryId) {
+      this.commitEditAmountFromInput();
+      if (this.isEditingDraftDirty()) {
+        ev.preventDefault();
+      }
+      const entry = this.actualEntries.find((e) => e.id === this.editingEntryId);
+      if (!entry || !this.dismissSpendingsRowInlineLikeEscape(entry)) {
+        return;
+      }
+    }
+    if (this.newEntryRowActive()) {
+      this.commitPendingNewActualAmount();
+      if (this.isNewEntryDiscardDirty()) {
+        ev.preventDefault();
+      }
+      if (!this.dismissSpendingsRowInlineLikeEscape()) {
+        return;
+      }
+    }
+  }
+
   editAmountDisplayValue(): string {
     if (!this.editDraft) {
       return '';
@@ -1152,7 +1197,7 @@ export class SpendingsPageComponent {
     }
   }
 
-  /** Escape on the new-entry or edit rows cancels (xmark path). */
+  /** Escape on the new-entry or edit rows cancels (same logic as {@link dismissSpendingsRowInlineLikeEscape}). */
   onSpendingsTableRowEscapeCancel(event: Event, entry?: ActualEntry): void {
     if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event)) {
       return;
@@ -1165,11 +1210,21 @@ export class SpendingsPageComponent {
       return;
     }
     event.preventDefault();
+    void this.dismissSpendingsRowInlineLikeEscape(entry);
+  }
+
+  /** Same outcome as Escape on the new-entry or edit row (shared with pointer-outside). */
+  private dismissSpendingsRowInlineLikeEscape(entry?: ActualEntry): boolean {
     if (entry) {
-      this.tryCancelRowEditing();
-    } else {
-      this.tryCloseNewEntryRow();
+      if (this.editingEntryId !== entry.id || !this.editDraft) {
+        return true;
+      }
+      return this.tryCancelRowEditing();
     }
+    if (!this.newEntryRowActive()) {
+      return true;
+    }
+    return this.tryCloseNewEntryRow();
   }
 
   private loadActualsFromStart(): void {

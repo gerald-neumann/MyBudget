@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, effect, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -8,6 +8,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
 import { I18nService } from '../core/i18n.service';
+import { ViewportService } from '../core/viewport.service';
+import { SwipeDeleteRowDirective } from '../core/swipe-delete-row.directive';
 import { Account } from '../core/budget.models';
 import {
   KeyboardAddShortcutService,
@@ -21,7 +23,7 @@ import {
 
 @Component({
   selector: 'app-accounts-page',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, SwipeDeleteRowDirective],
   templateUrl: './accounts-page.component.html',
   styleUrl: './accounts-page.component.css'
 })
@@ -29,12 +31,16 @@ export class AccountsPageComponent {
   private readonly api = inject(BudgetApiService);
   readonly state = inject(BudgetStateService);
   readonly i18n = inject(I18nService);
+  readonly viewport = inject(ViewportService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly documentRef = inject(DOCUMENT);
   private readonly keyboardAdd = inject(KeyboardAddShortcutService);
   private readonly accountsScroll = viewChild<ElementRef<HTMLElement>>('accountsScroll');
 
   accounts: Account[] = [];
   readonly loading = signal(false);
+  /** Add-account strip behind a toggle on compact viewports. */
+  readonly accountsHeaderToolsOpen = signal(false);
   /** Inline create row at the top of the table (same idea as Income & spending). */
   readonly newAccountRowActive = signal(false);
   readonly savingNewAccount = signal(false);
@@ -108,6 +114,10 @@ export class AccountsPageComponent {
 
       onCleanup(() => sub.unsubscribe());
     });
+
+    const onAccountsPointerDownCapture = (ev: Event) => this.onDocumentPointerDownAccountsCancel(ev);
+    this.documentRef.addEventListener('pointerdown', onAccountsPointerDownCapture, true);
+    this.destroyRef.onDestroy(() => this.documentRef.removeEventListener('pointerdown', onAccountsPointerDownCapture, true));
   }
 
   canManageAccounts(): boolean {
@@ -419,6 +429,62 @@ export class AccountsPageComponent {
     });
   }
 
+  accountsActionsColumnExpanded(): boolean {
+    return this.newAccountRowActive() || this.editingId !== null;
+  }
+
+  swipeDeleteAccountRowEnabled(row: Account): boolean {
+    return (
+      this.viewport.maxSm() &&
+      this.canManageAccounts() &&
+      this.editingId !== row.id &&
+      !this.savingNewAccount()
+    );
+  }
+
+  /** Click outside the active new/edit row: same outcome as Escape on that row. Primary button only. */
+  onDocumentPointerDownAccountsCancel(ev: Event): void {
+    if (!(ev instanceof PointerEvent) || ev.button !== 0) {
+      return;
+    }
+    const target = ev.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    if (target.closest('.accounts-row-editing')) {
+      return;
+    }
+    if (!this.editingId && !this.newAccountRowActive()) {
+      return;
+    }
+
+    if (this.editingId) {
+      if (this.editInitialDraft !== null) {
+        const parsed = this.i18n.parseAmount(this.editInitialDraft);
+        if (parsed !== null) {
+          this.editInitialBalance = parsed;
+        }
+        this.editInitialDraft = null;
+      }
+      if (this.isAccountEditDirty()) {
+        ev.preventDefault();
+      }
+      const row = this.accounts.find((a) => a.id === this.editingId);
+      if (!row || !this.dismissAccountsRowInlineLikeEscape(row)) {
+        return;
+      }
+    }
+    if (this.newAccountRowActive()) {
+      this.flushNewInitialDraft();
+      if (this.isNewAccountDirty()) {
+        ev.preventDefault();
+      }
+      if (!this.dismissAccountsRowInlineLikeEscape()) {
+        return;
+      }
+    }
+  }
+
   onAccountDisplayRowClick(event: Event, row: Account): void {
     const t = event.target;
     if (!(t instanceof HTMLElement) || t.closest('button, a, input, select, textarea, label')) {
@@ -452,6 +518,7 @@ export class AccountsPageComponent {
   }
 
   /** Escape on new/edit row cancels via the same action buttons. */
+  /** Escape on new/edit row cancels (same logic as {@link dismissAccountsRowInlineLikeEscape}). */
   onAccountsTableRowEscapeCancel(event: Event, row?: Account): void {
     if (!(event instanceof KeyboardEvent) || !shouldKeyboardCancelFromTarget(event)) {
       return;
@@ -464,11 +531,21 @@ export class AccountsPageComponent {
       return;
     }
     event.preventDefault();
+    void this.dismissAccountsRowInlineLikeEscape(row);
+  }
+
+  /** Same outcome as Escape on the new/edit account row (shared with pointer-outside). */
+  private dismissAccountsRowInlineLikeEscape(row?: Account): boolean {
     if (row) {
-      this.tryCancelEdit();
-    } else {
-      this.tryCancelNewAccountRow();
+      if (this.editingId !== row.id) {
+        return true;
+      }
+      return this.tryCancelEdit();
     }
+    if (!this.newAccountRowActive()) {
+      return true;
+    }
+    return this.tryCancelNewAccountRow();
   }
 
   saveEdit(): void {

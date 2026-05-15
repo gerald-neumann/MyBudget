@@ -1,85 +1,200 @@
-.budget-help-tooltip {
-  position: absolute;
-  z-index: 50;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(22rem, calc(100vw - 1.5rem));
-  max-height: min(70vh, 18rem);
-  overflow-y: auto;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.12s ease,
-    visibility 0.12s ease;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .budget-help-wrap:hover .budget-help-tooltip,
-  .budget-help-wrap:focus-within .budget-help-tooltip {
-    pointer-events: auto;
-    opacity: 1;
-    visibility: visible;
-  }
-}
-
-.budget-help-wrap.budget-help-wrap--pinned .budget-help-tooltip {
-  pointer-events: auto;
-  opacity: 1;
-  visibility: visible;
-}
-
 :host {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+
+  /* Position column may truncate (ellipsis); ~30% narrower than prior 7rem / 18% so months get more track. */
+  --budget-col-position-min: calc(7rem * 0.7);
+  /* German-style amounts e.g. -99.999,99 + padding; tabular-nums at text-sm need ~7.5–8rem on scaled UIs. */
+  --budget-col-month-min: 7.75rem;
+  /* Gesamt: same numeric band as a month cell plus two extra digit positions (tabular amounts / year roll-up). */
+  --budget-col-total-min: calc(var(--budget-col-month-min) + 2ch);
+  /* Action column: fixed track so `right` on the total column matches the real column width
+     (otherwise % + min-width grows the action cell and a gap opens next to sticky total).
+     Width follows global paired icon buttons + padding (`styles.css`). */
+  --budget-col-action-width: var(--app-table-actions-col-width);
+  --budget-month-count: 12;
+  --budget-table-min-width: calc(
+    var(--budget-col-position-min) + var(--budget-month-count) * var(--budget-col-month-min) +
+      var(--budget-col-total-min) + var(--budget-col-action-width)
+  );
+}
+
+:host.budget-page--max-sm {
+  --budget-col-action-width: 0rem;
+}
+
+:host.budget-page--max-sm .budget-col-sticky-end {
+  right: 0;
+}
+
+/* Wide track: align-items flex-start via Tailwind on .app-budget-scroll — avoids fixed-layout columns shrinking. */
+
+.budget-grid-inner {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  /* Fill the scrollport when there are few rows so a flex spacer can push the summary band to the bottom (parity with spendings). */
+  min-height: 100%;
+  box-sizing: border-box;
+  width: max(100%, var(--budget-table-min-width));
+  max-width: none;
+}
+
+/* Inert flex grow between the data grid and the summary so totals sit at the bottom of the viewport when content is short. */
+.budget-grid-flex-spacer {
+  flex-basis: 0;
 }
 
 .budget-table {
   table-layout: fixed;
+  box-sizing: border-box;
   width: 100%;
+  min-width: var(--budget-table-min-width);
+  /* collapse breaks horizontal sticky on table cells in WebKit / Chromium */
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-.budget-table-data,
-.budget-table-summary {
-  /* Match previous floor width; column min-widths can grow the table for legible amounts. */
-  min-width: 780px;
+.budget-table-month-cell {
+  min-width: var(--budget-col-month-min);
 }
 
 .budget-col-position {
-  width: 22%;
-  min-width: 8.5rem;
+  width: calc(18% * 0.7);
+  min-width: var(--budget-col-position-min);
 }
 
 .budget-col-month {
-  width: 4.5%;
-  /* Keep month inputs / sums readable; table grows horizontally when needed. */
-  min-width: 3.25rem;
+  width: 5.25%;
+  min-width: var(--budget-col-month-min);
 }
 
 .budget-col-total {
-  width: 12%;
-  min-width: 6.75rem;
+  width: 11%;
+  min-width: var(--budget-col-total-min);
 }
 
 .budget-col-action {
-  width: 6%;
-  min-width: 5.5rem;
+  width: var(--budget-col-action-width);
+  min-width: var(--budget-col-action-width);
+  max-width: var(--budget-col-action-width);
 }
 
-.app-budget-data-scroll .budget-table > thead th {
+.budget-col-sticky {
+  position: sticky;
+  left: 0;
+  /* Above unscrolled month cells (later DOM siblings paint later). */
+  z-index: 8;
+  box-shadow: 2px 0 6px -3px rgb(91 33 182 / 0.14);
+}
+
+/* Total column: sticks to the left of the action column while months pan. */
+.budget-col-sticky-end {
+  position: sticky;
+  right: var(--budget-col-action-width);
+  z-index: 9;
+  box-shadow: -2px 0 6px -3px rgb(91 33 182 / 0.14);
+}
+
+/* Action column: right edge of the scrollport. */
+.budget-col-sticky-action {
+  position: sticky;
+  right: 0;
+  z-index: 10;
+  box-shadow: -2px 0 6px -3px rgb(91 33 182 / 0.16);
+}
+
+.budget-col-sticky--corner {
+  top: 0;
+  z-index: 14;
+}
+
+.budget-table-data tbody .budget-col-sticky {
+  background-color: rgb(255 255 255);
+}
+
+.budget-table-data tbody tr:hover > .budget-col-sticky {
+  background-color: rgb(245 243 255 / 0.6);
+}
+
+.budget-table-data tbody tr.budget-category-section:hover > td.budget-category-section-label,
+.budget-table-data tbody tr.budget-category-section:hover > td.budget-category-section-fill {
+  background-color: rgb(237 233 254 / 0.95);
+}
+
+.budget-table-data tbody tr.budget-row-selected > .budget-col-sticky {
+  background-color: rgb(245 243 255 / 0.95);
+}
+
+.budget-table-data tbody td.budget-col-sticky-end,
+.budget-table-data tbody td.budget-col-sticky-action {
+  background-color: rgb(255 255 255);
+}
+
+.budget-table-data tbody tr:hover > td.budget-col-sticky-end,
+.budget-table-data tbody tr:hover > td.budget-col-sticky-action {
+  background-color: rgb(245 243 255 / 0.6);
+}
+
+.budget-table-data tbody tr.budget-row-selected > td.budget-col-sticky-end,
+.budget-table-data tbody tr.budget-row-selected > td.budget-col-sticky-action {
+  background-color: rgb(245 243 255 / 0.95);
+}
+
+.budget-table-summary .budget-col-sticky {
+  background-color: rgb(237 233 254);
+}
+
+.budget-table-summary td.budget-col-sticky-end,
+.budget-table-summary td.budget-col-sticky-action {
+  background-color: rgb(237 233 254);
+}
+
+.budget-table-data > thead > tr > th {
   position: sticky;
   top: 0;
   z-index: 12;
   box-shadow: 0 1px 0 rgb(237 233 254);
 }
 
+.budget-table-data > thead > tr > th.budget-col-sticky--corner {
+  /* Above month headers (they share the generic thead th z-index: 12). */
+  z-index: 13;
+  box-shadow:
+    0 1px 0 rgb(237 233 254),
+    2px 0 6px -3px rgb(91 33 182 / 0.14);
+}
+
+.budget-table-data > thead > tr > th.budget-col-sticky-end {
+  top: 0;
+  z-index: 15;
+  box-shadow:
+    0 1px 0 rgb(237 233 254),
+    -2px 0 6px -3px rgb(91 33 182 / 0.14);
+}
+
+.budget-table-data > thead > tr > th.budget-col-sticky-action {
+  top: 0;
+  z-index: 16;
+  box-shadow:
+    0 1px 0 rgb(237 233 254),
+    -2px 0 6px -3px rgb(91 33 182 / 0.16);
+}
+
 tr.budget-row-selected {
   box-shadow: inset 0 0 0 1px rgb(167 139 250);
   background-color: rgb(245 243 255 / 0.95);
+}
+
+tr.budget-category-section > td.budget-category-section-label {
+  background-color: rgb(237 233 254 / 0.95);
+}
+
+tr.budget-category-section > td.budget-category-section-fill {
+  background-color: rgb(237 233 254 / 0.95);
 }
 
 tr.budget-row-meta-panel td {

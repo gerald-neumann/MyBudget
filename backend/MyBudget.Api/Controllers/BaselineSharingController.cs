@@ -279,7 +279,8 @@ public class BaselineSharingController(
         {
             Id = userId,
             DisplayName = "Budget User",
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            UiDensity = "condensed"
         });
     }
 }

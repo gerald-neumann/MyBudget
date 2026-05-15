@@ -23,10 +23,13 @@ export interface CurrentUserDto {
   userId: string;
   displayName: string;
   colorScheme: string | null;
+  /** Present once API exposes `uiDensity`; omit to keep client-only density until upgrade. */
+  uiDensity?: string | null;
 }
 
 export interface UpdatePreferencesRequest {
   colorScheme: string | null;
+  uiDensity: string | null;
 }
 
 export interface ApiBuildInfoDto {
@@ -129,11 +132,12 @@ export class BudgetApiService {
     payload: {
       categoryId: string;
       name: string;
-      cadence: 'None' | 'Monthly' | 'Yearly';
+      cadence: 'None' | 'Monthly' | 'Yearly' | 'EveryNMonths';
       startDate: string;
       endDate?: string | null;
       defaultAmount: number;
       sortOrder: number;
+      intervalMonths?: number;
     }
   ): Observable<BudgetPosition> {
     return this.http.post<BudgetPosition>(`${this.baseUrl}/baselines/${baselineId}/positions`, payload);
@@ -145,11 +149,12 @@ export class BudgetApiService {
     payload: {
       categoryId: string;
       name: string;
-      cadence: 'None' | 'Monthly' | 'Yearly';
+      cadence: 'None' | 'Monthly' | 'Yearly' | 'EveryNMonths';
       startDate: string;
       endDate?: string | null;
       defaultAmount: number;
       sortOrder: number;
+      intervalMonths?: number;
       /** When set, matching planned months are reset to the new template amount and overrides cleared. */
       plannedAmountsScope?: 'All' | 'DateRange';
       plannedAmountsApplyFrom?: string;

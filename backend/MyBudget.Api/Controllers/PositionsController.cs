@@ -17,7 +17,21 @@ public class PositionsController(
     IBaselineAccessService baselineAccessService) : ControllerBase
 {
     private static BudgetRecurrenceRuleDto ToRecurrenceRuleDto(BudgetRecurrenceRule rule) =>
-        new(rule.Cadence, rule.StartDate, rule.EndDate, rule.DefaultAmount);
+        new(rule.Cadence, rule.StartDate, rule.EndDate, rule.DefaultAmount, rule.IntervalMonths);
+
+    /// <summary>
+    /// Matches <see cref="BudgetRecurrenceRule.GetExpectedMonths"/> materialization: clamp to 2–24, default when null.
+    /// </summary>
+    private static int? NormalizeIntervalMonths(BudgetCadence cadence, int? intervalMonths)
+    {
+        if (cadence != BudgetCadence.EveryNMonths)
+        {
+            return null;
+        }
+
+        var raw = intervalMonths ?? 3;
+        return Math.Clamp(raw, 2, 24);
+    }
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyCollection<BudgetPositionDto>>> GetByBaseline(
@@ -101,6 +115,8 @@ public class PositionsController(
             return Forbid();
         }
 
+        var intervalMonths = NormalizeIntervalMonths(request.Cadence, request.IntervalMonths);
+
         var position = new BudgetPosition
         {
             Id = Guid.NewGuid(),
@@ -112,7 +128,12 @@ public class PositionsController(
             EndDate = request.EndDate,
             DefaultAmount = request.DefaultAmount,
             SortOrder = request.SortOrder,
-            RecurrenceRuleJson = BudgetRecurrenceRule.ToJson(request.Cadence, request.StartDate, request.EndDate, request.DefaultAmount)
+            RecurrenceRuleJson = BudgetRecurrenceRule.ToJson(
+                request.Cadence,
+                request.StartDate,
+                request.EndDate,
+                request.DefaultAmount,
+                intervalMonths)
         };
 
         dbContext.Positions.Add(position);
@@ -161,6 +182,8 @@ public class PositionsController(
             return NotFound();
         }
 
+        var intervalMonths = NormalizeIntervalMonths(request.Cadence, request.IntervalMonths);
+
         position.CategoryId = request.CategoryId;
         position.Name = request.Name.Trim();
         position.Cadence = request.Cadence;
@@ -168,7 +191,12 @@ public class PositionsController(
         position.EndDate = request.EndDate;
         position.DefaultAmount = request.DefaultAmount;
         position.SortOrder = request.SortOrder;
-        position.RecurrenceRuleJson = BudgetRecurrenceRule.ToJson(request.Cadence, request.StartDate, request.EndDate, request.DefaultAmount);
+        position.RecurrenceRuleJson = BudgetRecurrenceRule.ToJson(
+            request.Cadence,
+            request.StartDate,
+            request.EndDate,
+            request.DefaultAmount,
+            intervalMonths);
 
         var updatedRule = BudgetRecurrenceRule.Resolve(
             position.Cadence,

@@ -1,4 +1,4 @@
-export type BudgetCadence = 'None' | 'Monthly' | 'Yearly';
+export type BudgetCadence = 'None' | 'Monthly' | 'Yearly' | 'EveryNMonths';
 export type BaselineAccessKind = 'None' | 'Viewer' | 'Editor' | 'Owner';
 export type BaselineMemberRole = 'Viewer' | 'Editor';
 
@@ -40,6 +40,8 @@ export interface BudgetRecurrenceRule {
   startDate: string;
   endDate?: string | null;
   defaultAmount: number;
+  /** Months between occurrences when `cadence` is `EveryNMonths` (server: 2–24). */
+  intervalMonths?: number | null;
 }
 
 export interface Account {

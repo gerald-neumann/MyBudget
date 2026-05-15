@@ -20,7 +20,12 @@ public record CreateBaselineRequest(string Name, string? Status);
 public record UpdateBaselineRequest(string? Name = null, string? Status = null, bool? IsPrimaryBudget = null);
 public record ForkBaselineRequest(string Name);
 
-public record BudgetRecurrenceRuleDto(BudgetCadence Cadence, DateOnly StartDate, DateOnly? EndDate, decimal DefaultAmount);
+public record BudgetRecurrenceRuleDto(
+    BudgetCadence Cadence,
+    DateOnly StartDate,
+    DateOnly? EndDate,
+    decimal DefaultAmount,
+    int? IntervalMonths);
 
 public record BudgetPositionDto(
     Guid Id,
@@ -43,7 +48,8 @@ public record CreatePositionRequest(
     DateOnly StartDate,
     DateOnly? EndDate,
     decimal DefaultAmount,
-    int SortOrder);
+    int SortOrder,
+    int? IntervalMonths = null);
 
 public record UpdatePositionRequest(
     Guid CategoryId,
@@ -53,6 +59,7 @@ public record UpdatePositionRequest(
     DateOnly? EndDate,
     decimal DefaultAmount,
     int SortOrder,
+    int? IntervalMonths = null,
     BudgetPositionPlannedApplyScope? PlannedAmountsScope = null,
     DateOnly? PlannedAmountsApplyFrom = null,
     DateOnly? PlannedAmountsApplyTo = null);
