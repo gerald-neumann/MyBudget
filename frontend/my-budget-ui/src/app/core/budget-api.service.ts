@@ -16,6 +16,7 @@ import {
   CategorySummaryPoint,
   MonthlyCashflowReport,
   MonthlySummaryPoint,
+  PlanActualByPositionReport,
   YearlySummaryPoint
 } from './budget.models';
 
@@ -23,8 +24,6 @@ export interface CurrentUserDto {
   userId: string;
   displayName: string;
   colorScheme: string | null;
-  /** Present once API exposes `uiDensity`; omit to keep client-only density until upgrade. */
-  uiDensity?: string | null;
 }
 
 export interface UpdatePreferencesRequest {
@@ -293,6 +292,12 @@ export class BudgetApiService {
 
   getMonthlyCashflow(baselineId: string, year: number): Observable<MonthlyCashflowReport> {
     return this.http.get<MonthlyCashflowReport>(`${this.baseUrl}/reports/monthly-cashflow`, {
+      params: new HttpParams().set('baselineId', baselineId).set('year', year)
+    });
+  }
+
+  getPlanActualByPosition(baselineId: string, year: number): Observable<PlanActualByPositionReport> {
+    return this.http.get<PlanActualByPositionReport>(`${this.baseUrl}/reports/plan-actual-by-position`, {
       params: new HttpParams().set('baselineId', baselineId).set('year', year)
     });
   }

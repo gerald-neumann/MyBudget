@@ -20,6 +20,7 @@ import {
   shouldKeyboardCancelFromTarget,
   shouldKeyboardConfirmFromTarget
 } from '../core/keyboard-confirm-cancel';
+import { selectAllOnFocusedNumericInput } from '../core/numeric-input-focus';
 
 @Component({
   selector: 'app-accounts-page',
@@ -137,6 +138,7 @@ export class AccountsPageComponent {
 
   onNewInitialFocus(): void {
     this.newInitialEdit = this.i18n.formatAmount(this.newAccount.initialBalance);
+    selectAllOnFocusedNumericInput();
   }
 
   onNewInitialInput(raw: string): void {
@@ -169,6 +171,7 @@ export class AccountsPageComponent {
 
   onEditInitialFocus(): void {
     this.editInitialDraft = this.i18n.formatAmount(this.editInitialBalance);
+    selectAllOnFocusedNumericInput();
   }
 
   onEditInitialInput(raw: string): void {

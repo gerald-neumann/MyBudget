@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using MyBudget.Api.Contracts;
 using MyBudget.Api.Domain.Entities;
@@ -197,6 +198,7 @@ public class BaselineSharingController(
     }
 
     [HttpPost("invitations/accept")]
+    [EnableRateLimiting("sensitive")]
     public async Task<ActionResult<AcceptInvitationResponse>> AcceptInvitation(AcceptInvitationRequest request, CancellationToken cancellationToken)
     {
         var token = request.Token.Trim();

@@ -1,9 +1,9 @@
 import { HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { from, switchMap } from 'rxjs';
+import { from, switchMap, throwError } from 'rxjs';
 
 import { authDebugLog } from './auth-debug';
-import { getResolvedApiBaseUrl } from './api-base-url';
+import { getResolvedApiBaseUrl, isAnonymousApiRequestUrl } from './api-base-url';
 import { KeycloakAuthService } from './keycloak-auth.service';
 
 let missingBearerLogRemaining = 12;
@@ -15,6 +15,17 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     switchMap((token) => {
       if (!token) {
         const api = getResolvedApiBaseUrl();
+        const protectedApiCall =
+          keycloakAuth.usesKeycloakAuth()
+          && req.url.startsWith(api)
+          && !isAnonymousApiRequestUrl(req.url);
+
+        if (protectedApiCall) {
+          authDebugLog('interceptor: blocked API request without Bearer token', req.method, req.url);
+          queueMicrotask(() => void keycloakAuth.login());
+          return throwError(() => new Error('Missing Bearer token for protected API request.'));
+        }
+
         if (
           missingBearerLogRemaining > 0 &&
           keycloakAuth.usesKeycloakAuth() &&

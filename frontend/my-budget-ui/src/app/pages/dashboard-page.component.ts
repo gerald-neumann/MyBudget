@@ -12,13 +12,21 @@ import {
   BaselineComparisonPoint,
   CategoryMonthlySpendSeries,
   CategorySummaryPoint,
-  MonthlyCashflowPoint
+  MonthlyCashflowPoint,
+  PositionPlanActualRow
 } from '../core/budget.models';
 import { I18nService } from '../core/i18n.service';
 import { ViewportService } from '../core/viewport.service';
 import { buildSpendingsDrillDownQuery } from '../core/spendings-drill-down';
 
 type ChartHitHandler = (hit: ActiveElement) => void;
+
+interface PlanActualMonthRow {
+  month: number;
+  planned: number;
+  actual: number;
+  delta: number;
+}
 
 @Component({
   selector: 'app-dashboard-page',
@@ -50,6 +58,7 @@ export class DashboardPageComponent {
 
   cashflowChartPlugins: Plugin[] = [];
   expenseStackChartPlugins: Plugin[] = [];
+  planActualChartPlugins: Plugin[] = [];
   categoryChartPlugins: Plugin[] = [];
 
   private expenseStackSeries: CategoryMonthlySpendSeries[] = [];
@@ -65,6 +74,15 @@ export class DashboardPageComponent {
   readonly chartsLoadFailed = signal(false);
   compareBaselineId = '';
   comparisonRows: BaselineComparisonPoint[] = [];
+  planActualRows: PlanActualMonthRow[] = [];
+  planActualPositionRows: PositionPlanActualRow[] = [];
+  readonly expandedPlanActualPositionIds = signal<ReadonlySet<string>>(new Set());
+
+  planActualChartData: ChartConfiguration<'bar'>['data'] = { labels: [], datasets: [] };
+  planActualChartOptions: ChartConfiguration<'bar'>['options'] = {
+    responsive: true,
+    maintainAspectRatio: false
+  };
 
   comparisonYearTotals(): { base: number; compare: number; delta: number } {
     let base = 0;
@@ -76,6 +94,16 @@ export class DashboardPageComponent {
       delta += r.delta;
     }
     return { base, compare, delta };
+  }
+
+  planActualYearTotals(): { planned: number; actual: number; delta: number } {
+    let planned = 0;
+    let actual = 0;
+    for (const row of this.planActualRows) {
+      planned += row.planned;
+      actual += row.actual;
+    }
+    return { planned, actual, delta: actual - planned };
   }
 
   cashflowChartData: ChartConfiguration['data'] = { labels: [], datasets: [] };
@@ -139,6 +167,7 @@ export class DashboardPageComponent {
 
       this.comparisonRows = [];
       this.compareBaselineId = '';
+      this.expandedPlanActualPositionIds.set(new Set());
 
       const sub = this.subscribeChartsLoad(baselineId, year);
       onCleanup(() => sub.unsubscribe());
@@ -170,6 +199,40 @@ export class DashboardPageComponent {
     return series.categoryId == null ? this.t('dashboard.cashflowOther') : this.i18n.translateCategoryName(series.category);
   }
 
+  planActualPositionLabel(row: PositionPlanActualRow): string {
+    return this.i18n.translateSampleToken(row.positionName);
+  }
+
+  planActualPositionDelta(planned: number, actual: number): number {
+    return actual - planned;
+  }
+
+  isPlanActualPositionExpanded(positionId: string): boolean {
+    return this.expandedPlanActualPositionIds().has(positionId);
+  }
+
+  togglePlanActualPositionExpand(positionId: string): void {
+    this.expandedPlanActualPositionIds.update((current) => {
+      const next = new Set(current);
+      if (next.has(positionId)) {
+        next.delete(positionId);
+      } else {
+        next.add(positionId);
+      }
+      return next;
+    });
+  }
+
+  navigateToPlanActualPositionDrillDown(row: PositionPlanActualRow, month?: number): void {
+    const year = this.state.selectedYear();
+    this.navigateToSpendingsDrillDown({
+      flow: row.isIncome ? 'income' : 'expense',
+      year,
+      ...(month != null ? { month } : {}),
+      categoryId: row.categoryId
+    });
+  }
+
   /** Returns a subscription owned by the caller (e.g. effect `onCleanup`) so in-flight loads cannot overwrite a newer baseline/year. */
   private subscribeChartsLoad(baselineId: string, year: number): Subscription {
     this.loading.set(true);
@@ -179,7 +242,8 @@ export class DashboardPageComponent {
     return forkJoin({
       cashflow: this.api.getMonthlyCashflow(baselineId, year),
       yearly: this.api.getYearlySummary(baselineId, year - 2, year),
-      category: this.api.getCategorySummary(baselineId, year)
+      category: this.api.getCategorySummary(baselineId, year),
+      planActualByPosition: this.api.getPlanActualByPosition(baselineId, year)
     }).subscribe({
       next: (response) => {
         this.loading.set(false);
@@ -189,6 +253,8 @@ export class DashboardPageComponent {
 
         this.applyCashflowCharts(months);
         this.applyExpenseStackChart(response.cashflow.expenseSeries);
+        this.applyPlanActualCharts(months);
+        this.planActualPositionRows = response.planActualByPosition.positions;
 
         this.categorySummaryRows = response.category;
         this.yearlyChartData = {
@@ -217,6 +283,7 @@ export class DashboardPageComponent {
         this.loading.set(false);
         this.chartDataReady.set(false);
         this.chartsLoadFailed.set(true);
+        this.planActualPositionRows = [];
       }
     });
   }
@@ -302,6 +369,75 @@ export class DashboardPageComponent {
     };
     this.cashflowChartPlugins = [
       this.spendingsDrillDownPlugin('cashflow', (hit) => this.onCashflowChartClick(hit))
+    ];
+  }
+
+  private applyPlanActualCharts(months: MonthlyCashflowPoint[]): void {
+    this.planActualRows = months.map((m) => ({
+      month: m.month,
+      planned: m.expensePlanned,
+      actual: m.expenseActual,
+      delta: m.expenseActual - m.expensePlanned
+    }));
+
+    const labels = months.map((m) => this.t(`monthShort.${m.month}`));
+    this.planActualChartData = {
+      labels,
+      datasets: [
+        {
+          label: this.t('dashboard.planned'),
+          data: months.map((m) => m.expensePlanned),
+          backgroundColor: '#334155',
+          borderColor: '#1e293b',
+          borderWidth: 1
+        },
+        {
+          label: this.t('dashboard.actual'),
+          data: months.map((m) => m.expenseActual),
+          backgroundColor: '#06b6d4',
+          borderColor: '#0891b2',
+          borderWidth: 1
+        }
+      ]
+    };
+
+    this.planActualChartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: 6 },
+      interaction: { mode: 'nearest', intersect: true },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { boxWidth: 10, padding: 6, font: { size: 10 } }
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label: (ctx) => {
+              const v = Number(ctx.raw);
+              return `${ctx.dataset.label ?? ''}: ${this.formatEur(v)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { maxRotation: 45, minRotation: 0, font: { size: 10 } }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            font: { size: 10 },
+            callback: (v) => this.compactEurLabel(Number(v))
+          },
+          grid: { color: 'rgba(148, 163, 184, 0.25)' }
+        }
+      }
+    };
+    this.planActualChartPlugins = [
+      this.spendingsDrillDownPlugin('plan-actual', (hit) => this.onPlanActualChartClick(hit))
     ];
   }
 
@@ -439,6 +575,17 @@ export class DashboardPageComponent {
       month,
       ...(series.categoryId ? { categoryId: series.categoryId } : {})
     });
+  }
+
+  private onPlanActualChartClick(hit: ActiveElement): void {
+    const value = Number(this.planActualChartData.datasets?.[hit.datasetIndex]?.data?.[hit.index]);
+    if (!this.segmentHasValue(value)) {
+      return;
+    }
+
+    const year = this.state.selectedYear();
+    const month = hit.index + 1;
+    this.navigateToSpendingsDrillDown({ flow: 'expense', year, month });
   }
 
   private onCategoryChartClick(hit: ActiveElement): void {

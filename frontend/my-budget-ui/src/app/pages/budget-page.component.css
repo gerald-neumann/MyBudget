@@ -15,6 +15,9 @@
      (otherwise % + min-width grows the action cell and a gap opens next to sticky total).
      Width follows global paired icon buttons + padding (`styles.css`). */
   --budget-col-action-width: var(--app-table-actions-col-width);
+  /* Opaque equivalents of Tailwind violet-50/{60,95} over white — sticky cells must not use alpha or scrolled month values bleed through. */
+  --budget-row-hover-bg: rgb(249 248 255);
+  --budget-row-selected-bg: rgb(245 243 255);
   --budget-month-count: 12;
   --budget-table-min-width: calc(
     var(--budget-col-position-min) + var(--budget-month-count) * var(--budget-col-month-min) +
@@ -117,7 +120,7 @@
 }
 
 .budget-table-data tbody tr:hover > .budget-col-sticky {
-  background-color: rgb(245 243 255 / 0.6);
+  background-color: var(--budget-row-hover-bg);
 }
 
 .budget-table-data tbody tr.budget-category-section:hover > td.budget-category-section-label,
@@ -126,7 +129,7 @@
 }
 
 .budget-table-data tbody tr.budget-row-selected > .budget-col-sticky {
-  background-color: rgb(245 243 255 / 0.95);
+  background-color: var(--budget-row-selected-bg);
 }
 
 .budget-table-data tbody td.budget-col-sticky-end,
@@ -136,12 +139,12 @@
 
 .budget-table-data tbody tr:hover > td.budget-col-sticky-end,
 .budget-table-data tbody tr:hover > td.budget-col-sticky-action {
-  background-color: rgb(245 243 255 / 0.6);
+  background-color: var(--budget-row-hover-bg);
 }
 
 .budget-table-data tbody tr.budget-row-selected > td.budget-col-sticky-end,
 .budget-table-data tbody tr.budget-row-selected > td.budget-col-sticky-action {
-  background-color: rgb(245 243 255 / 0.95);
+  background-color: var(--budget-row-selected-bg);
 }
 
 .budget-table-summary .budget-col-sticky {
@@ -186,7 +189,7 @@
 
 tr.budget-row-selected {
   box-shadow: inset 0 0 0 1px rgb(167 139 250);
-  background-color: rgb(245 243 255 / 0.95);
+  background-color: var(--budget-row-selected-bg);
 }
 
 tr.budget-category-section > td.budget-category-section-label {

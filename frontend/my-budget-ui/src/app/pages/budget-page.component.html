@@ -21,7 +21,7 @@
     </ul>
   }
 
-  @if (message && !newPositionSheetOpen && !editPositionDraft) {
+  @if (message && !newPositionSheetOpen() && !editPositionDraft) {
     <div
       class="shrink-0 rounded border px-3 py-2 text-sm"
       [class]="messageType === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'"
@@ -163,8 +163,8 @@
                   </tr>
                   @for (position of group.positions; track position.id) {
                   <tr
-                    class="cursor-pointer hover:bg-violet-50/60"
-                    [class.select-none]="position.cadence !== 'None'"
+                    class="hover:bg-violet-50/60"
+                    [class.cursor-pointer]="!isRuleBasedPosition(position)"
                     [class.budget-row-selected]="editPositionSurface === 'modal' && editPositionDraft?.id === position.id"
                     (click)="onBudgetRowClick(position, $event)"
                   >
@@ -195,23 +195,21 @@
                             [title]="position.name"
                             >{{ position.name }}</span>
                         }
-                        <span
-                          class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-violet-100 sm:h-5 sm:w-5"
-                          [class.border-violet-200]="position.cadence !== 'None'"
-                          [class.bg-violet-50]="position.cadence !== 'None'"
-                          [class.bg-transparent]="position.cadence === 'None'"
-                          [attr.aria-hidden]="position.cadence === 'None' ? 'true' : null"
-                          [attr.title]="position.cadence !== 'None' ? t('budget.ruleBasedRowHint') : null"
-                          [attr.role]="position.cadence !== 'None' ? 'img' : null"
-                          [attr.aria-label]="position.cadence !== 'None' ? t('budget.ruleBasedRowHint') : null"
-                        >
-                          @if (position.cadence !== 'None') {
+                        @if (!isSampleBaseline()) {
+                          <button
+                            type="button"
+                            class="budget-rule-btn inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-violet-50 text-violet-600 hover:bg-violet-100 hover:text-violet-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-not-allowed disabled:opacity-50 sm:h-5 sm:w-5"
+                            [attr.aria-label]="t('budget.editRule')"
+                            [attr.title]="t('budget.ruleBasedRowHint')"
+                            [disabled]="!canManageSelectedBaseline()"
+                            (click)="$event.stopPropagation(); openRuleEditForPosition(position)"
+                          >
                             <span
-                              class="fa-sharp fa-solid fa-lock text-[9px] leading-none text-violet-500 sm:text-[10px]"
+                              class="fa-sharp fa-solid fa-calculator text-[9px] leading-none sm:text-[10px]"
                               aria-hidden="true"
                             ></span>
-                          }
-                        </span>
+                          </button>
+                        }
                       </div>
                     </td>
                     @for (month of months; track month) {
@@ -219,28 +217,20 @@
                         class="budget-table-month-cell whitespace-nowrap border-b border-r border-violet-100 px-0.5 py-0.5 transition-colors sm:px-1 sm:py-1"
                         [ngClass]="i18n.signedAmountCellClass(getCellDisplayAmount(position, month))"
                       >
-                        @if (position.cadence === 'None') {
-                          <input
-                            class="w-full min-w-0 whitespace-nowrap rounded border border-transparent bg-transparent px-0.5 py-0.5 text-right text-xs tabular-nums focus:border-violet-300 focus:outline-none sm:px-1 sm:text-sm"
-                            type="text"
-                            inputmode="decimal"
-                            autocomplete="off"
-                            [attr.data-budget-planned-amount]="position.id + ':' + month"
-                            [readonly]="!canManageSelectedBaseline()"
-                            [value]="cellAmountInputValue(position, month)"
-                            (focus)="onCellAmountFocus(position, month)"
-                            (input)="onAmountDraftInput($any($event.target).value)"
-                            (blur)="onAmountFieldBlur()"
-                            (keydown.enter)="onBudgetTableFieldEnterConfirm($event)"
-                            (keydown.escape)="onBudgetCellAmountEscapeCancel($event, position, month)"
-                          />
-                        } @else {
-                          <div
-                            class="w-full min-w-0 whitespace-nowrap px-0.5 py-0.5 text-right text-xs tabular-nums sm:px-1 sm:py-1 sm:text-sm"
-                          >
-                            {{ i18n.formatAmount(getCellDisplayAmount(position, month)) }}
-                          </div>
-                        }
+                        <input
+                          class="w-full min-w-0 whitespace-nowrap rounded border border-transparent bg-transparent px-0.5 py-0.5 text-right text-xs tabular-nums focus:border-violet-300 focus:outline-none sm:px-1 sm:text-sm"
+                          type="text"
+                          inputmode="decimal"
+                          autocomplete="off"
+                          [attr.data-budget-planned-amount]="position.id + ':' + month"
+                          [readonly]="!canManageSelectedBaseline()"
+                          [value]="cellAmountInputValue(position, month)"
+                          (focus)="onCellAmountFocus(position, month)"
+                          (input)="onAmountDraftInput($any($event.target).value)"
+                          (blur)="onAmountFieldBlur($event)"
+                          (keydown.enter)="onBudgetTableFieldEnterConfirm($event)"
+                          (keydown.escape)="onBudgetCellAmountEscapeCancel($event, position, month)"
+                        />
                       </td>
                     }
                     <td
@@ -357,7 +347,7 @@
     }
   </article>
 
-  @if (newPositionSheetOpen) {
+  @if (newPositionSheetOpen()) {
     <div
       class="fixed inset-0 z-[55] flex items-end justify-center bg-violet-950/40 px-3 py-6 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
       role="presentation"
@@ -484,6 +474,7 @@
               }
             </div>
           }
+          @if (hasBudgetRule(newPosition.cadence)) {
           <div>
             <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-default-amt">{{
               t('budget.defaultAmountLabel')
@@ -509,26 +500,6 @@
               <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.invalidAmount') }}</p>
             }
           </div>
-          @if (newPosition.cadence === 'None') {
-            <div>
-              <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-on">{{ t('budget.validOn') }}</label>
-              <input
-                id="new-pos-on"
-                [(ngModel)]="newPosition.startDate"
-                class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
-                [ngClass]="
-                  showNewPositionSheetValidation() && newPositionStartInvalid()
-                    ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
-                    : 'border-violet-200 bg-violet-50 text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
-                "
-                [attr.aria-invalid]="showNewPositionSheetValidation() && newPositionStartInvalid() ? 'true' : null"
-                type="date"
-              />
-              @if (showNewPositionSheetValidation() && newPositionStartInvalid()) {
-                <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
-              }
-            </div>
-          } @else {
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-start">{{ t('budget.validFrom') }}</label>
@@ -606,13 +577,13 @@
         (click)="$event.stopPropagation()"
         role="dialog"
         aria-modal="true"
-        [attr.aria-label]="t('budget.editPositionSheetTitle')"
+        [attr.aria-label]="editPositionSheetTitle()"
         tabindex="-1"
         (keydown.enter)="onBudgetSheetEnterConfirm($event, 'edit')"
         (keydown.escape)="onBudgetSheetEscapeCancel($event, 'edit')"
       >
         <div class="shrink-0 px-4 pt-4 sm:px-5 sm:pt-5">
-          <h2 class="text-lg font-semibold text-violet-900">{{ t('budget.editPositionSheetTitle') }}</h2>
+          <h2 class="text-lg font-semibold text-violet-900">{{ editPositionSheetTitle() }}</h2>
           @if (editPositionSheetBanner) {
             <div
               class="mt-3 rounded border px-3 py-2 text-sm"
@@ -629,6 +600,7 @@
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
         <div class="flex flex-col gap-3">
+          @if (hasBudgetRule(editPositionDraft.cadence)) {
           <div>
             <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-name-modal">{{ t('budget.position') }}</label>
             <input
@@ -648,6 +620,7 @@
               <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
             }
           </div>
+          }
           <div class="relative min-w-0">
             <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-category-modal">{{ t('budget.category') }}</label>
             <div class="relative">
@@ -698,7 +671,7 @@
               <option [value]="cadence">{{ cadenceLabel(cadence) }}</option>
             }
           </select>
-          @if (editPositionDraft.cadence === 'EveryNMonths') {
+          @if (hasBudgetRule(editPositionDraft.cadence) && editPositionDraft.cadence === 'EveryNMonths') {
             <div>
               <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-interval-modal">{{
                 t('budget.recurrenceIntervalMonths')
@@ -723,6 +696,7 @@
               }
             </div>
           }
+          @if (hasBudgetRule(editPositionDraft.cadence)) {
           <div>
             <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-default-amt-modal">{{ t('budget.defaultAmountLabel') }}</label>
             <input
@@ -746,26 +720,6 @@
               <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.invalidAmount') }}</p>
             }
           </div>
-          @if (editPositionDraft.cadence === 'None') {
-            <div>
-              <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-on-modal">{{ t('budget.validOn') }}</label>
-              <input
-                id="edit-pos-on-modal"
-                [(ngModel)]="editPositionDraft.startDate"
-                class="min-h-10 w-full rounded border px-3 py-2 text-sm outline-none sm:min-h-0"
-                [ngClass]="
-                  showEditPositionValidation() && editPositionStartInvalid()
-                    ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
-                    : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
-                "
-                [attr.aria-invalid]="showEditPositionValidation() && editPositionStartInvalid() ? 'true' : null"
-                type="date"
-              />
-              @if (showEditPositionValidation() && editPositionStartInvalid()) {
-                <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
-              }
-            </div>
-          } @else {
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-start-modal">{{ t('budget.validFrom') }}</label>
@@ -804,8 +758,6 @@
                 }
               </div>
             </div>
-          }
-          @if (editPositionDraft.cadence !== 'None') {
             <fieldset
               class="rounded border p-3"
               [ngClass]="

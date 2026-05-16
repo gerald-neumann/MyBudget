@@ -7,7 +7,7 @@ export type KeyboardAddHandler = {
   canActivate: () => boolean;
 };
 
-/** Registers the active page’s primary add action for the global `+` shortcut. */
+/** Registers the active page’s primary add action for the global `+` / Insert shortcut. */
 @Injectable({ providedIn: 'root' })
 export class KeyboardAddShortcutService {
   private readonly document = inject(DOCUMENT);
@@ -44,7 +44,7 @@ export class KeyboardAddShortcutService {
   };
 }
 
-/** Wire `+` to a page add button for the component’s lifetime. */
+/** Wire `+` / Insert to a page add button for the component’s lifetime. */
 export function registerPageKeyboardAddShortcut(
   destroyRef: DestroyRef,
   service: KeyboardAddShortcutService,

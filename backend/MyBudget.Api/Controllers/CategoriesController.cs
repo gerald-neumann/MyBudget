@@ -73,6 +73,10 @@ public class CategoriesController(BudgetDbContext dbContext, IUserContext userCo
         {
             return NotFound();
         }
+        if (category.IsSystem)
+        {
+            return Conflict("System categories cannot be deleted.");
+        }
 
         dbContext.Categories.Remove(category);
         await dbContext.SaveChangesAsync(cancellationToken);

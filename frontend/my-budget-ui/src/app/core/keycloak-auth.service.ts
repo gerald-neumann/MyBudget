@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 import Keycloak, { KeycloakLoginOptions } from 'keycloak-js';
 
 import { authDebugLog, isKeycloakAuthDebug } from './auth-debug';
-import { getKeycloakUiConfig, storeHttpsRequiredFlash } from './api-base-url';
+import { getKeycloakUiConfig, isResolvedApiBaseRemoteHost, storeHttpsRequiredFlash } from './api-base-url';
 
 /** sessionStorage key: last OAuth error from Keycloak on `/sso` (read by sign-in-failed, then cleared). */
 export const MYBUDGET_KEYCLOAK_OAUTH_FLASH_KEY = 'mybudget_keycloak_oauth_flash';
@@ -346,7 +346,7 @@ export class KeycloakAuthService {
    * (paste at jwt.io — clear console afterward). Does nothing if debug is off.
    */
   private tryLogAccessTokenOnce(reason: string): void {
-    if (!isKeycloakAuthDebug() || this.accessTokenDebugLogged) {
+    if (!isKeycloakAuthDebug() || this.accessTokenDebugLogged || isResolvedApiBaseRemoteHost()) {
       return;
     }
     const kc = this.keycloak;

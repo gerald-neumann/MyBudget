@@ -21,6 +21,7 @@ import {
 } from './core/keyboard-confirm-cancel';
 import { APP_BUILD_TIMESTAMP_UTC, APP_VERSION } from './app-version';
 import { ViewportService } from './core/viewport.service';
+import { LastShellRouteService } from './core/last-shell-route.service';
 
 @Component({
   selector: 'app-root',
@@ -39,6 +40,7 @@ export class App {
   readonly sessionExpiredUi = inject(SessionExpiredUiService);
   readonly theme = inject(ThemeService);
   readonly viewport = inject(ViewportService);
+  private readonly lastShellRoute = inject(LastShellRouteService);
   readonly appVersion = APP_VERSION;
   readonly appBuildTimestampUtc = APP_BUILD_TIMESTAMP_UTC;
   readonly apiBuildInfo = signal<ApiBuildInfoDto | null>(null);
@@ -202,9 +204,6 @@ export class App {
         next: (me) => {
           this.currentUserDisplayName.set(me.displayName?.trim() || '');
           this.theme.applyFromServer(me.colorScheme);
-          if (me.uiDensity !== undefined) {
-            this.theme.applyUiDensityFromServer(me.uiDensity);
-          }
         },
         error: () => this.currentUserDisplayName.set('')
       });
@@ -868,6 +867,7 @@ export class App {
     const first = (parts[0] || 'dashboard').toLowerCase();
     if (first === 'dashboard' || first === 'budget' || first === 'actuals' || first === 'accounts' || first === 'help') {
       this.shellRouteSegment.set(first);
+      this.lastShellRoute.persistSegment(first);
     } else {
       this.shellRouteSegment.set('app');
     }

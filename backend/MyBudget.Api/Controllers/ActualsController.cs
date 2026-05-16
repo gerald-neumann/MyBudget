@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -335,6 +336,7 @@ public class ActualsController(
 
     /// <summary>Upload or replace a single receipt/invoice PDF or image (stored outside the primary database).</summary>
     [HttpPost("{id:guid}/attachment")]
+    [EnableRateLimiting("sensitive")]
     [RequestSizeLimit(22 * 1024 * 1024)]
     public async Task<ActionResult<ActualEntryDto>> UploadAttachment(
         Guid id,
@@ -351,10 +353,19 @@ public class ActualsController(
             return BadRequest($"File exceeds maximum size of {_attachmentOpts.MaxBytes} bytes.");
         }
 
-        var declaredType = file.ContentType?.Trim();
-        if (!ActualAttachmentContentRules.IsAllowedContentType(declaredType))
+        if (!ActualAttachmentContentRules.TryNormalizeAllowedContentType(file.ContentType, out var normalizedContentType))
         {
             return BadRequest("Unsupported file type. Use PDF or a common image format (JPEG, PNG, WebP, GIF).");
+        }
+        await using (var validationStream = file.OpenReadStream())
+        {
+            if (!await ActualAttachmentContentRules.HasValidFileSignatureAsync(
+                    validationStream,
+                    normalizedContentType,
+                    cancellationToken))
+            {
+                return BadRequest("File content does not match the declared file type.");
+            }
         }
 
         var entry = await dbContext.ActualEntries
@@ -377,7 +388,7 @@ public class ActualsController(
         }
 
         var safeName = ActualAttachmentContentRules.SanitizeFileName(file.FileName);
-        var ext = ResolveStorageExtension(safeName, declaredType!);
+        var ext = ResolveStorageExtension(safeName, normalizedContentType);
         var newKey = $"{id:D}/{Guid.NewGuid():N}{ext}";
 
         if (!string.IsNullOrEmpty(entry.Entry.AttachmentBlobKey))
@@ -395,12 +406,12 @@ public class ActualsController(
 
         await using (var stream = file.OpenReadStream())
         {
-            await attachmentBlobStore.UploadAsync(newKey, stream, declaredType!, cancellationToken);
+            await attachmentBlobStore.UploadAsync(newKey, stream, normalizedContentType, cancellationToken);
         }
 
         entry.Entry.AttachmentBlobKey = newKey;
         entry.Entry.AttachmentOriginalFileName = safeName;
-        entry.Entry.AttachmentContentType = declaredType;
+        entry.Entry.AttachmentContentType = normalizedContentType;
         await dbContext.SaveChangesAsync(cancellationToken);
 
         var accountName = await dbContext.Accounts
@@ -440,9 +451,7 @@ public class ActualsController(
 
         var stream = await attachmentBlobStore.OpenReadAsync(entry.AttachmentBlobKey, cancellationToken);
         var downloadName = ActualAttachmentContentRules.SanitizeFileName(entry.AttachmentOriginalFileName);
-        var contentType = string.IsNullOrWhiteSpace(entry.AttachmentContentType)
-            ? "application/octet-stream"
-            : entry.AttachmentContentType!;
+        var contentType = ActualAttachmentContentRules.ResolveDownloadContentType(entry.AttachmentContentType, downloadName);
         return File(stream, contentType, downloadName);
     }
 

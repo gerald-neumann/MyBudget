@@ -8,9 +8,15 @@ export function isKeyboardCancel(event: KeyboardEvent): boolean {
   return event.key === 'Escape' && !event.repeat;
 }
 
-/** Plus / numpad plus — same as the page primary “add” action (violet + button). */
+/** Plus, numpad plus, or Insert — same as the page primary “add” action (violet + button). */
 export function isKeyboardAdd(event: KeyboardEvent): boolean {
-  return !event.repeat && (event.key === '+' || event.code === 'NumpadAdd');
+  return (
+    !event.repeat &&
+    (event.key === '+' ||
+      event.code === 'NumpadAdd' ||
+      event.key === 'Insert' ||
+      event.code === 'Insert')
+  );
 }
 
 function isTextEntryElement(el: HTMLElement): boolean {
@@ -25,7 +31,7 @@ function isTextEntryElement(el: HTMLElement): boolean {
 }
 
 /**
- * Whether + should run the page add action.
+ * Whether + / Insert should run the page add action.
  * Skips text fields, dialogs, and modified keys (Ctrl/Cmd/Alt); Shift is allowed (needed for + on many layouts).
  */
 export function shouldKeyboardAddFromTarget(event: KeyboardEvent): boolean {

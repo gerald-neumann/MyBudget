@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using MyBudget.Api.Contracts;
 using MyBudget.Api.Domain.Enums;
@@ -54,6 +56,121 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
     }
 
     [Fact]
+    public async Task Position_endpoints_reject_category_ids_that_do_not_belong_to_baseline_owner()
+    {
+        var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
+        Assert.NotNull(baselines);
+        var primary = baselines.Single(b => b.IsPrimaryBudget && !b.IsSampleDemo);
+
+        var categories = await Http.GetFromJsonAsync<List<CategoryJson>>("/categories", JsonOpts);
+        Assert.NotNull(categories);
+        var validCategoryId = categories.First(c => !c.IsIncome).Id;
+        var invalidCategoryId = Guid.NewGuid();
+
+        var year = DateTime.UtcNow.Year;
+        using var createPosition = await Http.PostAsJsonAsync(
+            $"/baselines/{primary.Id}/positions",
+            new CreatePositionRequest(
+                validCategoryId,
+                "E2E category validation",
+                BudgetCadence.Monthly,
+                new DateOnly(year, 1, 1),
+                null,
+                15m,
+                9010));
+        createPosition.EnsureSuccessStatusCode();
+        var created = await createPosition.Content.ReadFromJsonAsync<PositionRow>(JsonOpts);
+        Assert.NotNull(created);
+
+        using var patchWithInvalidCategory = await Http.PatchAsJsonAsync(
+            $"/baselines/{primary.Id}/positions/{created.Id}",
+            new UpdatePositionRequest(
+                invalidCategoryId,
+                "E2E category validation patched",
+                BudgetCadence.Monthly,
+                new DateOnly(year, 1, 1),
+                null,
+                16m,
+                9009));
+        Assert.Equal(HttpStatusCode.BadRequest, patchWithInvalidCategory.StatusCode);
+
+        using var createWithInvalidCategory = await Http.PostAsJsonAsync(
+            $"/baselines/{primary.Id}/positions",
+            new CreatePositionRequest(
+                invalidCategoryId,
+                "E2E invalid category create",
+                BudgetCadence.Monthly,
+                new DateOnly(year, 1, 1),
+                null,
+                9m,
+                9011));
+        Assert.Equal(HttpStatusCode.BadRequest, createWithInvalidCategory.StatusCode);
+
+        using var cleanup = await Http.DeleteAsync($"/baselines/{primary.Id}/positions/{created.Id}");
+        cleanup.EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task Reports_monthly_summary_rejects_excessive_date_ranges()
+    {
+        var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
+        Assert.NotNull(baselines);
+        var sample = baselines.Single(b => b.IsSampleDemo);
+
+        var from = new DateOnly(1900, 1, 1);
+        var to = new DateOnly(2099, 12, 31);
+        using var response = await Http.GetAsync(
+            $"/reports/monthly-summary?baselineId={sample.Id}&from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Upload_attachment_rejects_payload_with_mismatching_file_signature()
+    {
+        var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
+        Assert.NotNull(baselines);
+        var sample = baselines.Single(b => b.IsSampleDemo);
+
+        var year = DateTime.UtcNow.Year;
+        var positions = await Http.GetFromJsonAsync<List<PositionRow>>(
+            $"/baselines/{sample.Id}/positions?year={year}",
+            JsonOpts);
+        Assert.NotNull(positions);
+        Assert.NotEmpty(positions);
+
+        var accountList = await Http.GetFromJsonAsync<List<AccountJson>>(
+            $"/accounts?baselineId={sample.Id}",
+            JsonOpts);
+        Assert.NotNull(accountList);
+        Assert.NotEmpty(accountList);
+
+        using var createActual = await Http.PostAsJsonAsync(
+            "/actuals",
+            new CreateActualEntryRequest(
+                positions[0].Id,
+                accountList[0].Id,
+                new DateOnly(year, 6, 10),
+                15m,
+                "e2e upload",
+                null));
+        createActual.EnsureSuccessStatusCode();
+        var actual = await createActual.Content.ReadFromJsonAsync<ActualJson>(JsonOpts);
+        Assert.NotNull(actual);
+
+        var payloadBytes = Encoding.UTF8.GetBytes("this is not a png signature");
+        using var multipart = new MultipartFormDataContent();
+        using var fileContent = new ByteArrayContent(payloadBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        multipart.Add(fileContent, "file", "fake.png");
+
+        using var upload = await Http.PostAsync($"/actuals/{actual.Id}/attachment", multipart);
+        Assert.Equal(HttpStatusCode.BadRequest, upload.StatusCode);
+
+        using var cleanup = await Http.DeleteAsync($"/actuals/{actual.Id}");
+        cleanup.EnsureSuccessStatusCode();
+    }
+
+    [Fact]
     public async Task All_http_endpoints_smoke_test_against_seeded_beispielhaushalt()
     {
         using var health = await Http.GetAsync("/health");
@@ -105,6 +222,7 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
             $"/reports/yearly-summary?baselineId={sample.Id}&fromYear={year - 1}&toYear={year}"));
         AssertOk(await Http.GetAsync($"/reports/by-category?baselineId={sample.Id}&year={year}"));
         AssertOk(await Http.GetAsync($"/reports/monthly-cashflow?baselineId={sample.Id}&year={year}"));
+        AssertOk(await Http.GetAsync($"/reports/plan-actual-by-position?baselineId={sample.Id}&year={year}"));
 
         AssertOk(await Http.GetAsync($"/baselines/{sample.Id}/compare?otherId={primary.Id}&year={year}"));
         AssertOk(await Http.GetAsync($"/baselines/{sample.Id}/categories"));

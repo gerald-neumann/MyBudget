@@ -354,7 +354,7 @@ th.app-table-actions-cell {
   background-color: var(--app-surface-muted);
 }
 
-/* Condensed data tables: tighter row height (user menu → table spacing). */
+/* Condensed data tables: tighter row height (fixed compact spacing). */
 html[data-app-density="condensed"] {
   --app-table-icon-btn-size: 2rem;
 }

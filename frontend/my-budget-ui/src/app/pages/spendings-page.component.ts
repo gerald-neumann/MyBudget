@@ -26,6 +26,7 @@ import {
   parseSpendingsDrillDownParams,
   SpendingsDrillDownParams
 } from '../core/spendings-drill-down';
+import { selectAllOnFocusedNumericInput } from '../core/numeric-input-focus';
 
 export type SpendingsDatePreset = 'currentMonth' | 'prevMonth' | 'month' | 'currentYear' | 'lastYear' | 'all';
 export type LedgerFlowFilter = 'all' | 'income' | 'expense';
@@ -723,6 +724,7 @@ export class SpendingsPageComponent {
     this.newActualAmountEdit = this.i18n.formatAmount(
       this.displayAmountForDraft(this.newActual.budgetPositionId, this.effectiveNewActualAmount())
     );
+    selectAllOnFocusedNumericInput();
   }
 
   onNewActualAmountInput(raw: string): void {
@@ -1162,6 +1164,7 @@ export class SpendingsPageComponent {
     this.editAmountText = this.i18n.formatAmount(
       this.displayAmountForDraft(this.editDraft.budgetPositionId, this.editDraft.amount)
     );
+    selectAllOnFocusedNumericInput();
   }
 
   onEditAmountInput(raw: string): void {

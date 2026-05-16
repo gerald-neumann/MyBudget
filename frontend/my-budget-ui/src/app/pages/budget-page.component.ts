@@ -19,6 +19,7 @@ import {
   shouldKeyboardConfirmForModal,
   shouldKeyboardConfirmFromTarget
 } from '../core/keyboard-confirm-cancel';
+import { selectAllOnFocusedNumericInput } from '../core/numeric-input-focus';
 import { BudgetCadence, BudgetPosition, Category } from '../core/budget.models';
 
 @Component({
@@ -81,7 +82,7 @@ export class BudgetPageComponent {
   newPosition = {
     name: '',
     categoryName: '',
-    cadence: 'Monthly' as BudgetCadence,
+    cadence: 'None' as BudgetCadence,
     startDate: this.toDateInput(new Date()),
     endDate: '' as string | null,
     defaultAmount: 0,
@@ -89,7 +90,7 @@ export class BudgetPageComponent {
   };
 
   /** Bottom sheet / compact dialog for creating a position (keeps the table uncluttered on small screens). */
-  newPositionSheetOpen = false;
+  readonly newPositionSheetOpen = signal(false);
 
   /** When true, new-position sheet shows field-level errors after a failed submit attempt. */
   newPositionSheetValidationAttempted = false;
@@ -99,6 +100,9 @@ export class BudgetPageComponent {
 
   /** Position meta (name, category, cadence, dates, planned scope) edits use a modal; month amounts stay as table cell inputs. */
   editPositionSurface: 'modal' | null = null;
+
+  /** True when the edit modal was opened from the row calculator (budget-rule affordance). */
+  private editPositionOpenedAsRule = false;
 
   editPositionDraft: {
     id: string;
@@ -450,6 +454,7 @@ export class BudgetPageComponent {
       month,
       draft: this.i18n.formatAmount(this.getCellDisplayAmount(position, month))
     };
+    selectAllOnFocusedNumericInput();
   }
 
   onNewPositionDefaultFocus(): void {
@@ -460,6 +465,7 @@ export class BudgetPageComponent {
       kind: 'newDefault',
       draft: this.i18n.formatAmount(this.displayStoredDefaultForNewSheet(this.newPosition.defaultAmount))
     };
+    selectAllOnFocusedNumericInput();
   }
 
   onAmountDraftInput(raw: string): void {
@@ -470,7 +476,7 @@ export class BudgetPageComponent {
     this.amountEdit = { ...ctx, draft: raw };
   }
 
-  onAmountFieldBlur(): void {
+  onAmountFieldBlur(event?: FocusEvent): void {
     const ctx = this.amountEdit;
     if (!ctx) {
       return;
@@ -479,15 +485,18 @@ export class BudgetPageComponent {
       this.amountEdit = null;
       return;
     }
-    const parsed = this.i18n.parseAmount(ctx.draft);
+    const draftText = event?.target instanceof HTMLInputElement ? event.target.value : ctx.draft;
     if (ctx.kind === 'cell') {
-      if (parsed !== null) {
+      const amount = this.parsePlannedAmountDraftForSave(draftText);
+      if (amount !== null) {
         const pos = this.positions.find((p) => p.id === ctx.positionId);
         if (pos) {
-          this.onCellEdited(pos, ctx.month, parsed);
+          this.onCellEdited(pos, ctx.month, amount);
         }
       }
-    } else if (ctx.kind === 'newDefault' && parsed !== null) {
+    }
+    const parsed = this.i18n.parseAmount(draftText);
+    if (ctx.kind === 'newDefault' && parsed !== null) {
       const cat = this.findCategoryByName(this.newPosition.categoryName);
       this.newPosition.defaultAmount = cat ? this.toStoredPlannedAmount(cat.id, parsed) : parsed;
     } else if (ctx.kind === 'editDefault' && parsed !== null && this.editPositionDraft?.id === ctx.positionId) {
@@ -585,6 +594,28 @@ export class BudgetPageComponent {
       return this.t('budget.uncategorized');
     }
     return this.i18n.translateCategoryName(raw);
+  }
+
+  /** Category field value when editing; empty when the position has no resolved category. */
+  private categoryDraftLabelForPosition(position: BudgetPosition): string {
+    const raw = this.categories.find((item) => item.id === position.categoryId)?.name;
+    if (!raw) {
+      return '';
+    }
+    return this.i18n.translateCategoryName(raw);
+  }
+
+  private isUncategorizedPlaceholderLabel(label: string): boolean {
+    const trimmed = label.trim();
+    return trimmed === this.t('budget.uncategorized');
+  }
+
+  private hasValidCategoryDraft(categoryName: string): boolean {
+    const trimmed = categoryName.trim();
+    if (!trimmed || this.isUncategorizedPlaceholderLabel(trimmed)) {
+      return false;
+    }
+    return true;
   }
 
   /** Position + months + total + optional action column (hidden on compact viewports). */
@@ -735,7 +766,7 @@ export class BudgetPageComponent {
       this.tryCloseEditPositionSheet();
       return;
     }
-    if (this.newPositionSheetOpen) {
+    if (this.newPositionSheetOpen()) {
       event.preventDefault();
       event.stopPropagation();
       this.tryCloseNewPositionSheet();
@@ -754,11 +785,11 @@ export class BudgetPageComponent {
     this.captureNewPositionFormBaseline();
     this.message = '';
     this.newPositionSheetValidationAttempted = false;
-    this.newPositionSheetOpen = true;
+    this.newPositionSheetOpen.set(true);
   }
 
   closeNewPositionSheet(): void {
-    this.newPositionSheetOpen = false;
+    this.newPositionSheetOpen.set(false);
     this.newPositionSheetValidationAttempted = false;
     this.newPositionSheetBanner = '';
     this.clearCategorySuggestCloseTimer();
@@ -769,7 +800,7 @@ export class BudgetPageComponent {
 
   /** User cancel / leave: confirm when the new-position form was changed. */
   tryCloseNewPositionSheet(): boolean {
-    if (!this.newPositionSheetOpen) {
+    if (!this.newPositionSheetOpen()) {
       return true;
     }
     if (!this.isNewPositionFormDirty()) {
@@ -787,7 +818,7 @@ export class BudgetPageComponent {
   private resetNewPositionForm(): void {
     this.newPosition.name = '';
     this.newPosition.categoryName = '';
-    this.newPosition.cadence = 'Monthly';
+    this.newPosition.cadence = 'None';
     this.newPosition.startDate = this.toDateInput(new Date());
     this.newPosition.endDate = '';
     this.newPositionSheetBanner = '';
@@ -848,7 +879,7 @@ export class BudgetPageComponent {
   }
 
   onBudgetRowClick(position: BudgetPosition, event: MouseEvent): void {
-    if (!this.canManageSelectedBaseline()) {
+    if (!this.canManageSelectedBaseline() || this.isRuleBasedPosition(position)) {
       return;
     }
     const target = event.target as HTMLElement | null;
@@ -858,8 +889,23 @@ export class BudgetPageComponent {
     this.openPrimaryEditForPosition(position);
   }
 
+  hasBudgetRule(cadence: BudgetCadence): boolean {
+    return cadence !== 'None';
+  }
+
+  isRuleBasedPosition(position: BudgetPosition): boolean {
+    return this.hasBudgetRule(position.cadence);
+  }
+
+  /** Opens the budget-rule dialog (cadence, template amount, dates, planned-cell options). */
+  openRuleEditForPosition(position: BudgetPosition): void {
+    this.editPositionOpenedAsRule = true;
+    this.openEditPositionModal(position);
+  }
+
   /** Primary “Edit” / row click: modal with full position form (all cadences). */
   openPrimaryEditForPosition(position: BudgetPosition): void {
+    this.editPositionOpenedAsRule = false;
     this.openEditPositionModal(position);
   }
 
@@ -867,7 +913,7 @@ export class BudgetPageComponent {
     this.editPositionDraft = {
       id: position.id,
       name: position.name ?? '',
-      categoryName: this.categoryName(position.categoryId),
+      categoryName: this.categoryDraftLabelForPosition(position),
       cadence: position.cadence,
       startDate: position.startDate,
       endDate: position.cadence === 'None' ? '' : (position.endDate ?? ''),
@@ -888,7 +934,7 @@ export class BudgetPageComponent {
     if (this.editPositionDraft?.id === position.id && this.editPositionSurface === 'modal') {
       return;
     }
-    if (this.newPositionSheetOpen && !this.tryCloseNewPositionSheet()) {
+    if (this.newPositionSheetOpen() && !this.tryCloseNewPositionSheet()) {
       return;
     }
     this.message = '';
@@ -920,6 +966,7 @@ export class BudgetPageComponent {
   /** Close edit UI without confirm (save success, position removed, server sync orphan). */
   private forceCloseEditPositionSheet(): void {
     this.editPositionSurface = null;
+    this.editPositionOpenedAsRule = false;
     this.editPositionDraft = null;
     this.editPositionValidationAttempted = false;
     this.editPositionPlannedApplyScope = 'all';
@@ -1005,7 +1052,7 @@ export class BudgetPageComponent {
       return;
     }
     if (mode === 'new') {
-      if (!this.newPositionSheetOpen) {
+      if (!this.newPositionSheetOpen()) {
         return;
       }
     } else if (this.editPositionSurface !== 'modal' || !this.editPositionDraft) {
@@ -1039,7 +1086,7 @@ export class BudgetPageComponent {
       return;
     }
     if (mode === 'new') {
-      if (!this.newPositionSheetOpen) {
+      if (!this.newPositionSheetOpen()) {
         return;
       }
       event.preventDefault();
@@ -1071,7 +1118,7 @@ export class BudgetPageComponent {
     this.editPositionDraft = {
       id: pos.id,
       name: pos.name ?? '',
-      categoryName: this.categoryName(pos.categoryId),
+      categoryName: this.categoryDraftLabelForPosition(pos),
       cadence: pos.cadence,
       startDate: pos.startDate,
       endDate: pos.cadence === 'None' ? '' : (pos.endDate ?? ''),
@@ -1110,6 +1157,7 @@ export class BudgetPageComponent {
       positionId: draft.id,
       draft: this.i18n.formatAmount(display)
     };
+    selectAllOnFocusedNumericInput();
   }
 
   onEditPositionCadenceChange(cadence: BudgetCadence): void {
@@ -1148,20 +1196,29 @@ export class BudgetPageComponent {
   }
 
   newPositionCategoryInvalid(): boolean {
-    return !this.newPosition.categoryName.trim();
+    return !this.hasValidCategoryDraft(this.newPosition.categoryName);
   }
 
   newPositionStartInvalid(): boolean {
+    if (!this.hasBudgetRule(this.newPosition.cadence)) {
+      return false;
+    }
     return !String(this.newPosition.startDate ?? '').trim();
   }
 
   newPositionEndBeforeStartInvalid(): boolean {
+    if (!this.hasBudgetRule(this.newPosition.cadence)) {
+      return false;
+    }
     const start = String(this.newPosition.startDate ?? '').trim();
     const end = String(this.newPosition.endDate ?? '').trim();
     return Boolean(start && end && end < start);
   }
 
   newPositionDefaultAmountInvalid(): boolean {
+    if (!this.hasBudgetRule(this.newPosition.cadence)) {
+      return false;
+    }
     const e = this.amountEdit;
     return e?.kind === 'newDefault' && this.isUnparseableAmountDraft(e.draft);
   }
@@ -1175,22 +1232,25 @@ export class BudgetPageComponent {
 
   editPositionNameInvalid(): boolean {
     const d = this.editPositionDraft;
-    return !d || !d.name.trim();
+    return !d || (this.hasBudgetRule(d.cadence) && !d.name.trim());
   }
 
   editPositionCategoryInvalid(): boolean {
     const d = this.editPositionDraft;
-    return !d || !d.categoryName.trim();
+    return !d || !this.hasValidCategoryDraft(d.categoryName);
   }
 
   editPositionStartInvalid(): boolean {
     const d = this.editPositionDraft;
-    return !d || !String(d.startDate ?? '').trim();
+    if (!d || !this.hasBudgetRule(d.cadence)) {
+      return false;
+    }
+    return !String(d.startDate ?? '').trim();
   }
 
   editPositionEndBeforeStartInvalid(): boolean {
     const d = this.editPositionDraft;
-    if (!d) {
+    if (!d || !this.hasBudgetRule(d.cadence)) {
       return false;
     }
     const start = String(d.startDate ?? '').trim();
@@ -1200,8 +1260,11 @@ export class BudgetPageComponent {
 
   editPositionDefaultAmountInvalid(): boolean {
     const d = this.editPositionDraft;
+    if (!d || !this.hasBudgetRule(d.cadence)) {
+      return false;
+    }
     const e = this.amountEdit;
-    return Boolean(d && e?.kind === 'editDefault' && e.positionId === d.id && this.isUnparseableAmountDraft(e.draft));
+    return Boolean(e?.kind === 'editDefault' && e.positionId === d.id && this.isUnparseableAmountDraft(e.draft));
   }
 
   editPositionPlannedApplyRangeInvalid(): boolean {
@@ -1228,6 +1291,19 @@ export class BudgetPageComponent {
     return this.i18n.parseAmount(raw) === null;
   }
 
+  /** Cleared planned-amount cell (empty or lone sign) saves as zero; invalid text does not save. */
+  private parsePlannedAmountDraftForSave(draft: string): number | null {
+    const parsed = this.i18n.parseAmount(draft);
+    if (parsed !== null) {
+      return parsed;
+    }
+    let s = draft.trim().replace(/[\s\u00a0\u202f]/g, '').replace(/\u2212/g, '-');
+    if (s === '' || s === '-' || s === '+') {
+      return 0;
+    }
+    return null;
+  }
+
   private newPositionHasBlockingFieldErrors(): boolean {
     return (
       this.newPositionNameInvalid() ||
@@ -1244,10 +1320,11 @@ export class BudgetPageComponent {
     if (!d) {
       return false;
     }
+    const needsRuleFields = this.hasBudgetRule(d.cadence);
     return (
       this.editPositionNameInvalid() ||
       this.editPositionCategoryInvalid() ||
-      !String(d.startDate ?? '').trim() ||
+      (needsRuleFields && !String(d.startDate ?? '').trim()) ||
       this.editPositionEndBeforeStartInvalid() ||
       this.editPositionDefaultAmountInvalid() ||
       this.editPositionPlannedApplyRangeInvalid() ||
@@ -1296,13 +1373,16 @@ export class BudgetPageComponent {
       .pipe(
         takeUntilDestroyed(this.destroyRef),
         switchMap((categoryId) => {
-          const defaultAmount =
-            defaultAmountFromUi !== null
+          const noRule = !this.hasBudgetRule(draft.cadence);
+          const defaultAmount = noRule
+            ? 0
+            : defaultAmountFromUi !== null
               ? this.toStoredPlannedAmount(categoryId, defaultAmountFromUi)
               : draft.defaultAmount;
+          const startDateForSave = noRule ? position.startDate : draft.startDate;
           const templateDriveChanged =
             draft.cadence !== position.cadence ||
-            draft.startDate !== position.startDate ||
+            startDateForSave !== position.startDate ||
             endDate !== (position.endDate ?? null) ||
             Math.abs(Number(defaultAmount) - Number(position.defaultAmount)) > 1e-9 ||
             this.recurrenceIntervalTemplateChanged(draft, position);
@@ -1316,10 +1396,19 @@ export class BudgetPageComponent {
             }
           }
 
+          const nameForSave = noRule ? (position.name ?? '').trim() : draft.name.trim();
           return this.api.updatePosition(
             baselineId,
             position.id,
-            this.buildEditPositionUpdatePayload(position, draft, categoryId, defaultAmount, endDate, draft.name.trim())
+            this.buildEditPositionUpdatePayload(
+              position,
+              draft,
+              categoryId,
+              defaultAmount,
+              endDate,
+              nameForSave,
+              startDateForSave
+            )
           );
         })
       )
@@ -1348,27 +1437,28 @@ export class BudgetPageComponent {
     categoryId: string,
     defaultAmount: number,
     endDate: string | null,
-    name: string
+    name: string,
+    startDate: string
   ) {
     const base = this.patchPayload(position, {
       categoryId,
       name,
       cadence: draft.cadence,
-      startDate: draft.startDate,
+      startDate,
       endDate,
       defaultAmount,
       recurrenceIntervalMonths: draft.recurrenceIntervalMonths
     });
     const templateDriveChanged =
       draft.cadence !== position.cadence ||
-      draft.startDate !== position.startDate ||
+      startDate !== position.startDate ||
       endDate !== (position.endDate ?? null) ||
       Math.abs(Number(defaultAmount) - Number(position.defaultAmount)) > 1e-9 ||
       this.recurrenceIntervalTemplateChanged(draft, position);
     if (!templateDriveChanged) {
       return base;
     }
-    if (draft.cadence === 'None') {
+    if (!this.hasBudgetRule(draft.cadence)) {
       return { ...base, plannedAmountsScope: 'All' as const };
     }
     if (this.editPositionPlannedApplyScope === 'dateRange') {
@@ -1399,6 +1489,8 @@ export class BudgetPageComponent {
 
     const categoryName = this.newPosition.categoryName.trim();
     const positionName = this.newPosition.name.trim();
+    const year = this.state.selectedYear();
+    const noRule = !this.hasBudgetRule(this.newPosition.cadence);
 
     this.resolveCategoryId$(categoryName)
       .pipe(
@@ -1408,9 +1500,9 @@ export class BudgetPageComponent {
             categoryId,
             name: positionName,
             cadence: this.newPosition.cadence,
-            startDate: this.newPosition.startDate,
-            endDate: this.newPosition.cadence === 'None' ? null : this.newPosition.endDate || null,
-            defaultAmount: this.toStoredPlannedAmount(categoryId, this.effectiveNewPositionDefaultAmount()),
+            startDate: noRule ? `${year}-01-01` : this.newPosition.startDate,
+            endDate: noRule ? null : this.newPosition.endDate || null,
+            defaultAmount: noRule ? 0 : this.toStoredPlannedAmount(categoryId, this.effectiveNewPositionDefaultAmount()),
             sortOrder: this.positions.length + 1,
             ...(this.newPosition.cadence === 'EveryNMonths'
               ? {
@@ -1556,6 +1648,15 @@ export class BudgetPageComponent {
     return this.t(`monthShort.${month}`);
   }
 
+  /** Modal heading: budget-rule dialog vs full position edit. */
+  editPositionSheetTitle(): string {
+    const d = this.editPositionDraft;
+    if (this.editPositionOpenedAsRule || (d && this.hasBudgetRule(d.cadence))) {
+      return this.t('budget.editBudgetRuleSheetTitle');
+    }
+    return this.t('budget.editPositionSheetTitle');
+  }
+
   cadenceLabel(cadence: BudgetCadence): string {
     if (cadence === 'None') {
       return this.t('budget.none');
@@ -1585,7 +1686,7 @@ export class BudgetPageComponent {
       this.messageType = type;
       return;
     }
-    if (this.newPositionSheetOpen) {
+    if (this.newPositionSheetOpen()) {
       this.message = '';
       this.clearOverlayFeedbackMessages();
       this.newPositionSheetBanner = message;

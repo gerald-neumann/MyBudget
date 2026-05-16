@@ -217,19 +217,6 @@
                     }
                   </select>
                 </div>
-                <div class="mb-3 flex flex-col items-start gap-1.5">
-                  <label class="text-xs [color:var(--app-text-muted)]" for="user-menu-table-density">{{ t('app.tableDensity') }}</label>
-                  <select
-                    id="user-menu-table-density"
-                    class="min-h-8 w-full rounded border px-1.5 py-1 text-sm [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
-                    [ngModel]="theme.uiDensity()"
-                    (ngModelChange)="theme.setUiDensity($event)"
-                  >
-                    @for (option of theme.uiDensityOptions; track option.id) {
-                      <option [value]="option.id">{{ t(option.labelKey) }}</option>
-                    }
-                  </select>
-                </div>
                 <button
                   type="button"
                   class="mb-2 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] [color:var(--app-text)] hover:[background-color:var(--app-surface-muted)]"
@@ -535,19 +522,6 @@
                     (ngModelChange)="theme.setTheme($event)"
                   >
                     @for (option of theme.options; track option.id) {
-                      <option [value]="option.id">{{ t(option.labelKey) }}</option>
-                    }
-                  </select>
-                </div>
-                <div class="mb-3 flex flex-col items-start gap-1.5">
-                  <label class="text-xs [color:var(--app-text-muted)]" for="user-menu-table-density-mobile">{{ t('app.tableDensity') }}</label>
-                  <select
-                    id="user-menu-table-density-mobile"
-                    class="min-h-9 w-full rounded border px-1.5 py-1 text-xs [border-color:var(--app-border)] [background-color:var(--app-surface-muted)] [color:var(--app-text-strong)]"
-                    [ngModel]="theme.uiDensity()"
-                    (ngModelChange)="theme.setUiDensity($event)"
-                  >
-                    @for (option of theme.uiDensityOptions; track option.id) {
                       <option [value]="option.id">{{ t(option.labelKey) }}</option>
                     }
                   </select>

@@ -76,6 +76,184 @@
     }
   </article>
 
+  <article class="min-w-0 rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4">
+    <h2 class="text-lg font-semibold text-violet-900">{{ t('dashboard.planActualTitle') }}</h2>
+    <p class="mt-1 text-sm text-violet-700">{{ t('dashboard.planActualHint') }}</p>
+    <div class="mt-3 h-64 min-h-[16rem] sm:h-80 sm:min-h-0">
+      @if (loading()) {
+        <p class="pt-1 text-sm text-violet-600">{{ t('dashboard.loading') }}</p>
+      } @else if (chartDataReady()) {
+        <canvas
+          baseChart
+          [data]="planActualChartData"
+          [options]="planActualChartOptions"
+          [plugins]="planActualChartPlugins"
+          [type]="'bar'"
+        ></canvas>
+      } @else if (chartsLoadFailed()) {
+        <p class="pt-1 text-sm text-rose-700">{{ t('dashboard.chartsLoadError') }}</p>
+      }
+    </div>
+
+    @if (chartDataReady() && !loading()) {
+      <h3 class="mt-4 text-sm font-semibold text-violet-900">{{ t('dashboard.planActualTotals') }}</h3>
+      <div class="mt-2 max-h-64 overflow-y-auto rounded border border-violet-100 overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+        <table class="comparison-table w-full min-w-0 text-sm">
+          <colgroup>
+            <col class="comparison-col-month" />
+            <col class="comparison-col-value" />
+            <col class="comparison-col-value" />
+            <col class="comparison-col-value" />
+          </colgroup>
+          <thead class="bg-violet-50">
+            <tr>
+              <th class="min-w-0 px-2 py-2 text-left">{{ t('dashboard.month') }}</th>
+              <th class="min-w-0 px-2 py-2 text-right">{{ t('dashboard.planned') }}</th>
+              <th class="min-w-0 px-2 py-2 text-right">{{ t('dashboard.actual') }}</th>
+              <th class="min-w-0 px-2 py-2 text-right">{{ t('dashboard.delta') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of planActualRows; track row.month) {
+              <tr class="border-t border-violet-100 hover:bg-violet-50/60">
+                <td class="min-w-0 px-2 py-2">{{ monthLabel(row.month) }}</td>
+                <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(row.planned)">
+                  {{ i18n.formatSignedAmount(row.planned) }}
+                </td>
+                <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(row.actual)">
+                  {{ i18n.formatSignedAmount(row.actual) }}
+                </td>
+                <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(row.delta)">
+                  {{ i18n.formatSignedAmount(row.delta) }}
+                </td>
+              </tr>
+            }
+          </tbody>
+          @if (planActualRows.length > 0) {
+            @let totals = planActualYearTotals();
+            <tfoot>
+              <tr class="border-t-2 border-violet-200 bg-violet-100 font-medium text-violet-900">
+                <td class="min-w-0 px-2 py-2">{{ t('dashboard.comparisonTotal') }}</td>
+                <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(totals.planned)">
+                  {{ i18n.formatSignedAmount(totals.planned) }}
+                </td>
+                <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(totals.actual)">
+                  {{ i18n.formatSignedAmount(totals.actual) }}
+                </td>
+                <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(totals.delta)">
+                  {{ i18n.formatSignedAmount(totals.delta) }}
+                </td>
+              </tr>
+            </tfoot>
+          }
+        </table>
+      </div>
+
+      <h3 class="mt-5 text-sm font-semibold text-violet-900">{{ t('dashboard.planActualByPosition') }}</h3>
+      @if (planActualPositionRows.length === 0) {
+        <p class="mt-2 text-sm text-violet-600">{{ t('dashboard.planActualNoPositions') }}</p>
+      } @else {
+        <div class="mt-2 max-h-96 overflow-y-auto rounded border border-violet-100 overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+          <table class="plan-actual-position-table w-full min-w-0 text-sm">
+            <thead class="sticky top-0 z-[1] bg-violet-50">
+              <tr>
+                <th class="min-w-0 px-2 py-2 text-left">{{ t('dashboard.position') }}</th>
+                <th class="min-w-0 px-2 py-2 text-right">{{ t('dashboard.planned') }}</th>
+                <th class="min-w-0 px-2 py-2 text-right">{{ t('dashboard.actual') }}</th>
+                <th class="min-w-0 px-2 py-2 text-right">{{ t('dashboard.delta') }}</th>
+                <th class="w-10 px-1 py-2" aria-hidden="true"></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (pos of planActualPositionRows; track pos.positionId) {
+                @let yearDelta = planActualPositionDelta(pos.yearPlanned, pos.yearActual);
+                <tr
+                  class="border-t border-violet-100 hover:bg-violet-50/60"
+                  [class.bg-violet-50/30]="isPlanActualPositionExpanded(pos.positionId)"
+                >
+                  <td class="min-w-0 px-2 py-2">
+                    <button
+                      type="button"
+                      class="w-full text-left font-medium text-violet-900 hover:underline"
+                      (click)="navigateToPlanActualPositionDrillDown(pos)"
+                    >
+                      {{ planActualPositionLabel(pos) }}
+                    </button>
+                    <span class="mt-0.5 block truncate text-xs text-violet-600">{{
+                      i18n.translateCategoryName(pos.categoryName)
+                    }}</span>
+                  </td>
+                  <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(pos.yearPlanned)">
+                    {{ i18n.formatSignedAmount(pos.yearPlanned) }}
+                  </td>
+                  <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(pos.yearActual)">
+                    {{ i18n.formatSignedAmount(pos.yearActual) }}
+                  </td>
+                  <td class="min-w-0 px-2 py-2 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(yearDelta)">
+                    {{ i18n.formatSignedAmount(yearDelta) }}
+                  </td>
+                  <td class="px-1 py-2 text-center">
+                    <button
+                      type="button"
+                      class="inline-flex h-8 w-8 items-center justify-center rounded text-violet-700 hover:bg-violet-100"
+                      [attr.aria-expanded]="isPlanActualPositionExpanded(pos.positionId)"
+                      [attr.aria-label]="
+                        isPlanActualPositionExpanded(pos.positionId)
+                          ? t('dashboard.planActualCollapse')
+                          : t('dashboard.planActualExpand')
+                      "
+                      [attr.title]="
+                        isPlanActualPositionExpanded(pos.positionId)
+                          ? t('dashboard.planActualCollapse')
+                          : t('dashboard.planActualExpand')
+                      "
+                      (click)="togglePlanActualPositionExpand(pos.positionId)"
+                    >
+                      <span
+                        class="fa-sharp fa-solid leading-none transition-transform"
+                        [class.fa-chevron-down]="isPlanActualPositionExpanded(pos.positionId)"
+                        [class.fa-chevron-right]="!isPlanActualPositionExpanded(pos.positionId)"
+                        aria-hidden="true"
+                      ></span>
+                    </button>
+                  </td>
+                </tr>
+                @if (isPlanActualPositionExpanded(pos.positionId)) {
+                  @for (m of pos.months; track m.month) {
+                    @if (m.planned !== 0 || m.actual !== 0) {
+                      @let monthDelta = planActualPositionDelta(m.planned, m.actual);
+                      <tr class="border-t border-violet-50 bg-violet-50/40 text-xs">
+                        <td class="min-w-0 py-1.5 pl-6 pr-2">
+                          <button
+                            type="button"
+                            class="text-violet-800 hover:underline"
+                            (click)="navigateToPlanActualPositionDrillDown(pos, m.month)"
+                          >
+                            {{ monthLabel(m.month) }}
+                          </button>
+                        </td>
+                        <td class="min-w-0 px-2 py-1.5 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(m.planned)">
+                          {{ i18n.formatSignedAmount(m.planned) }}
+                        </td>
+                        <td class="min-w-0 px-2 py-1.5 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(m.actual)">
+                          {{ i18n.formatSignedAmount(m.actual) }}
+                        </td>
+                        <td class="min-w-0 px-2 py-1.5 text-right tabular-nums" [ngClass]="i18n.signedAmountTextClass(monthDelta)">
+                          {{ i18n.formatSignedAmount(monthDelta) }}
+                        </td>
+                        <td></td>
+                      </tr>
+                    }
+                  }
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    }
+  </article>
+
   <div class="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
     <article class="min-w-0 rounded-lg border border-violet-100 bg-white/80 p-3 shadow-sm backdrop-blur sm:p-4">
       <h2 class="text-lg font-semibold text-violet-900">{{ t('dashboard.yearlyTitle') }}</h2>

@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 
 import { authDebugLog } from '../core/auth-debug';
 import { KeycloakAuthService } from '../core/keycloak-auth.service';
+import { LastShellRouteService } from '../core/last-shell-route.service';
 
 /**
  * Keycloak redirect target only. Root `''` → `dashboard` redirect would strip OAuth params before the adapter
@@ -16,6 +17,7 @@ import { KeycloakAuthService } from '../core/keycloak-auth.service';
 export class SsoBridgeComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly keycloakAuth = inject(KeycloakAuthService);
+  private readonly lastShellRoute = inject(LastShellRouteService);
 
   ngOnInit(): void {
     const search = typeof window !== 'undefined' ? window.location.search : '';
@@ -30,7 +32,8 @@ export class SsoBridgeComponent implements OnInit {
     });
 
     if (this.keycloakAuth.isAuthenticated()) {
-      void this.router.navigateByUrl('/dashboard', { replaceUrl: true });
+      const segment = this.lastShellRoute.getRestoreSegment();
+      void this.router.navigateByUrl(`/${segment}`, { replaceUrl: true });
       return;
     }
     // Callback params but no session → init already failed or state was invalid; do not hit `/` + guard (login loop).

@@ -63,6 +63,7 @@ services:
       FrontendOrigin: "${FRONTEND_ORIGIN}"
       PublicPathBase: "${PUBLIC_PATH_BASE:-}"
       ENABLE_SWAGGER: "${ENABLE_SWAGGER:-false}"
+      Swagger__AllowInProduction: "${SWAGGER_ALLOW_IN_PRODUCTION:-false}"
     expose:
       - "8080"
     depends_on:
@@ -74,9 +75,9 @@ services:
     pull_policy: never
     container_name: mybudget-ui
     restart: unless-stopped
-    # Full host:container publish spec (default 80:80). Example loopback-only: 127.0.0.1:18080:80
+    # Full host:container publish spec (default loopback-only 127.0.0.1:18080:80).
     ports:
-      - "${MYBUDGET_EDGE_PUBLISH:-80:80}"
+      - "${MYBUDGET_EDGE_PUBLISH:-127.0.0.1:18080:80}"
     volumes:
       - ${MYBUDGET_UI_CONFIG_PATH:-./ui-config.json}:/usr/share/nginx/html/config.json:ro
     depends_on:

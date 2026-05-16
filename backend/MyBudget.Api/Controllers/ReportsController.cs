@@ -12,6 +12,9 @@ public class ReportsController(
     IUserContext userContext,
     IBaselineAccessService baselineAccessService) : ControllerBase
 {
+    private const int MaxMonthlySummaryMonths = 120;
+    private const int MaxYearlySummaryYears = 25;
+
     [HttpGet("monthly-summary")]
     public async Task<ActionResult<IReadOnlyCollection<MonthlySummaryPoint>>> MonthlySummary(
         [FromQuery] Guid baselineId,
@@ -19,6 +22,17 @@ public class ReportsController(
         [FromQuery] DateOnly to,
         CancellationToken cancellationToken)
     {
+        if (from > to)
+        {
+            return BadRequest("'from' must be on or before 'to'.");
+        }
+
+        var monthSpan = ((to.Year - from.Year) * 12) + (to.Month - from.Month) + 1;
+        if (monthSpan > MaxMonthlySummaryMonths)
+        {
+            return BadRequest($"Requested monthly range exceeds the maximum of {MaxMonthlySummaryMonths} months.");
+        }
+
         var accessFailure = await EnsureReadableBaselineAsync(baselineId, cancellationToken);
         if (accessFailure is not null)
         {
@@ -68,6 +82,17 @@ public class ReportsController(
         [FromQuery] int toYear,
         CancellationToken cancellationToken)
     {
+        if (fromYear > toYear)
+        {
+            return BadRequest("'fromYear' must be less than or equal to 'toYear'.");
+        }
+
+        var yearSpan = toYear - fromYear + 1;
+        if (yearSpan > MaxYearlySummaryYears)
+        {
+            return BadRequest($"Requested yearly range exceeds the maximum of {MaxYearlySummaryYears} years.");
+        }
+
         var accessFailure = await EnsureReadableBaselineAsync(baselineId, cancellationToken);
         if (accessFailure is not null)
         {
@@ -252,6 +277,93 @@ public class ReportsController(
         }
 
         return Ok(new MonthlyCashflowReportDto(months, expenseSeries));
+    }
+
+    [HttpGet("plan-actual-by-position")]
+    public async Task<ActionResult<PlanActualByPositionReportDto>> PlanActualByPosition(
+        [FromQuery] Guid baselineId,
+        [FromQuery] int year,
+        CancellationToken cancellationToken)
+    {
+        var accessFailure = await EnsureReadableBaselineAsync(baselineId, cancellationToken);
+        if (accessFailure is not null)
+        {
+            return accessFailure;
+        }
+
+        var positions = await dbContext.Positions
+            .Where(p => p.BaselineId == baselineId)
+            .OrderBy(p => p.SortOrder)
+            .ThenBy(p => p.Name)
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.SortOrder,
+                p.CategoryId,
+                CategoryName = p.Category.Name,
+                p.Category.IsIncome
+            })
+            .ToListAsync(cancellationToken);
+
+        var plannedRows = await dbContext.PlannedAmounts
+            .Where(pa => pa.BudgetPosition.BaselineId == baselineId && pa.Year == year)
+            .GroupBy(pa => new { pa.BudgetPositionId, pa.Month })
+            .Select(group => new
+            {
+                group.Key.BudgetPositionId,
+                group.Key.Month,
+                Total = group.Sum(x => x.Amount)
+            })
+            .ToListAsync(cancellationToken);
+
+        var actualRows = await dbContext.ActualEntries
+            .Where(a => a.BudgetPosition.BaselineId == baselineId && a.BookedOn.Year == year)
+            .GroupBy(a => new { a.BudgetPositionId, Month = a.BookedOn.Month })
+            .Select(group => new
+            {
+                group.Key.BudgetPositionId,
+                group.Key.Month,
+                Total = group.Sum(x => x.Amount)
+            })
+            .ToListAsync(cancellationToken);
+
+        var plannedMap = plannedRows.ToDictionary(x => (x.BudgetPositionId, x.Month), x => x.Total);
+        var actualMap = actualRows.ToDictionary(x => (x.BudgetPositionId, x.Month), x => x.Total);
+
+        var result = new List<PositionPlanActualRowDto>();
+        foreach (var position in positions)
+        {
+            var months = new List<PositionPlanActualMonthDto>();
+            decimal yearPlanned = 0m;
+            decimal yearActual = 0m;
+            for (var month = 1; month <= 12; month++)
+            {
+                var planned = plannedMap.GetValueOrDefault((position.Id, month), 0m);
+                var actual = actualMap.GetValueOrDefault((position.Id, month), 0m);
+                yearPlanned += planned;
+                yearActual += actual;
+                months.Add(new PositionPlanActualMonthDto(month, planned, actual));
+            }
+
+            if (yearPlanned == 0m && yearActual == 0m)
+            {
+                continue;
+            }
+
+            result.Add(new PositionPlanActualRowDto(
+                position.Id,
+                position.Name,
+                position.CategoryId,
+                position.CategoryName,
+                position.IsIncome,
+                position.SortOrder,
+                months,
+                yearPlanned,
+                yearActual));
+        }
+
+        return Ok(new PlanActualByPositionReportDto(result));
     }
 
     private async Task<ActionResult?> EnsureReadableBaselineAsync(Guid baselineId, CancellationToken cancellationToken)

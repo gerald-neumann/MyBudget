@@ -4,6 +4,7 @@
     "enabled": true,
     "url": "https://auth.flowparity.com/keycloak",
     "realm": "my-budget",
-    "clientId": "my-budget-ui"
+    "clientId": "my-budget-ui",
+    "debug": false
   }
 }

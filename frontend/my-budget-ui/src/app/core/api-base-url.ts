@@ -13,6 +13,7 @@ export interface KeycloakUiConfig {
 }
 
 let keycloakUiConfig: KeycloakUiConfig | null = null;
+const anonymousApiPaths = new Set(['/build-info', '/health']);
 
 export function getKeycloakUiConfig(): KeycloakUiConfig | null {
   return keycloakUiConfig;
@@ -36,7 +37,8 @@ function applyAppConfigJson(c: AppConfigJson): void {
     resolvedApiBaseUrl = c.apiBaseUrl.trim().replace(/\/$/, '');
   }
   const k = c?.keycloak;
-  setKeycloakDebugFromConfig(k?.debug === true);
+  const allowDebug = k?.debug === true && !isResolvedApiBaseRemoteHost();
+  setKeycloakDebugFromConfig(allowDebug);
   if (
     k?.enabled === true &&
     k.url?.trim() &&
@@ -80,6 +82,17 @@ export function bootstrapApiBaseUrl(): Promise<void> {
 
 export function getResolvedApiBaseUrl(): string {
   return resolvedApiBaseUrl;
+}
+
+export function isAnonymousApiRequestUrl(requestUrl: string): boolean {
+  const apiBase = getResolvedApiBaseUrl();
+  if (!requestUrl.startsWith(apiBase)) {
+    return false;
+  }
+
+  const relative = requestUrl.slice(apiBase.length);
+  const pathWithoutQuery = relative.split('?', 2)[0];
+  return anonymousApiPaths.has(pathWithoutQuery);
 }
 
 /** True when the configured API is not on loopback — deployed APIs require JWT; Keycloak must be enabled in config.json. */

@@ -1,10 +1,13 @@
 using System.Reflection;
 using System.IdentityModel.Tokens.Jwt;
+using System.Threading.RateLimiting;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,6 +32,46 @@ builder.Services.AddSwaggerGen(options =>
     options.SwaggerDoc("v1", new Microsoft.OpenApi.OpenApiInfo { Title = "MyBudget API", Version = "v1" });
 });
 builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+var globalRequestsPerMinute = builder.Configuration.GetValue<int?>("RateLimiting:GlobalRequestsPerMinute") ?? 300;
+var sensitiveRequestsPerMinute = builder.Configuration.GetValue<int?>("RateLimiting:SensitiveRequestsPerMinute") ?? 40;
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        var key = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: key,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = globalRequestsPerMinute,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                AutoReplenishment = true
+            });
+    });
+    options.AddPolicy("sensitive", httpContext =>
+    {
+        var key = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"sensitive:{key}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = sensitiveRequestsPerMinute,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                AutoReplenishment = true
+            });
+    });
+});
 
 var connectionString = builder.Configuration.GetConnectionString("Database");
 if (string.IsNullOrWhiteSpace(connectionString))
@@ -305,14 +348,17 @@ if (!string.IsNullOrWhiteSpace(publicPathBase))
 {
     app.UsePathBase(publicPathBase);
 }
+app.UseForwardedHeaders();
 
-// Swagger is on by default in Development; in deployed environments enable it explicitly via ENABLE_SWAGGER=true.
-var enableSwagger = app.Environment.IsDevelopment()
-    || app.Configuration.GetValue<bool>("EnableSwagger")
+var swaggerRequested = app.Configuration.GetValue<bool>("EnableSwagger")
     || string.Equals(
         Environment.GetEnvironmentVariable("ENABLE_SWAGGER"),
         "true",
         StringComparison.OrdinalIgnoreCase);
+var allowSwaggerInProduction = app.Configuration.GetValue<bool>("Swagger:AllowInProduction");
+// Development keeps Swagger on by default; production requires both an explicit request and an allow flag.
+var enableSwagger = app.Environment.IsDevelopment()
+    || (swaggerRequested && allowSwaggerInProduction);
 
 if (enableSwagger)
 {
@@ -323,6 +369,7 @@ if (enableSwagger)
 DatabaseStartup.ApplyEfMigrations(app);
 
 app.UseCors("frontend");
+app.UseRateLimiter();
 // HTTP-only local API (e.g. http://localhost:5256): HTTPS redirection has no port → warning 3 from HttpsRedirectionMiddleware.
 var disableHttpsRedirect =
     string.Equals(Environment.GetEnvironmentVariable("DISABLE_HTTPS_REDIRECT"), "true", StringComparison.OrdinalIgnoreCase)
@@ -331,6 +378,19 @@ if (!disableHttpsRedirect)
 {
     app.UseHttpsRedirection();
 }
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+    await next();
+});
 app.UseAuthentication();
 if (useDevUserFallback)
 {
@@ -340,7 +400,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
-app.MapGet(
+var buildInfoEndpoint = app.MapGet(
         "/build-info",
         () =>
         {
@@ -354,8 +414,11 @@ app.MapGet(
                 .FirstOrDefault(a => string.Equals(a.Key, "BuildTimestampUtc", StringComparison.Ordinal))
                 ?.Value;
             return Results.Json(new { version, buildTimestampUtc });
-        })
-    .AllowAnonymous();
+        });
+if (app.Environment.IsDevelopment())
+{
+    buildInfoEndpoint.AllowAnonymous();
+}
 
 app.Run();
 

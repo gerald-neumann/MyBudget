@@ -114,6 +114,10 @@ public class PositionsController(
         {
             return Forbid();
         }
+        if (!await CategoryBelongsToBaselineOwnerAsync(request.CategoryId, access.OwnerUserId, cancellationToken))
+        {
+            return BadRequest("Category not found or does not belong to this baseline owner.");
+        }
 
         var intervalMonths = NormalizeIntervalMonths(request.Cadence, request.IntervalMonths);
 
@@ -172,6 +176,10 @@ public class PositionsController(
         if (!access.CanManageBudget)
         {
             return Forbid();
+        }
+        if (!await CategoryBelongsToBaselineOwnerAsync(request.CategoryId, access.OwnerUserId, cancellationToken))
+        {
+            return BadRequest("Category not found or does not belong to this baseline owner.");
         }
 
         var position = await dbContext.Positions
@@ -369,4 +377,7 @@ public class PositionsController(
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
         return monthStart <= applyTo!.Value && monthEnd >= applyFrom!.Value;
     }
+
+    private Task<bool> CategoryBelongsToBaselineOwnerAsync(Guid categoryId, Guid ownerUserId, CancellationToken cancellationToken)
+        => dbContext.Categories.AnyAsync(c => c.Id == categoryId && c.UserId == ownerUserId, cancellationToken);
 }

@@ -152,3 +152,25 @@ export interface MonthlyCashflowReport {
   months: MonthlyCashflowPoint[];
   expenseSeries: CategoryMonthlySpendSeries[];
 }
+
+export interface PositionPlanActualMonth {
+  month: number;
+  planned: number;
+  actual: number;
+}
+
+export interface PositionPlanActualRow {
+  positionId: string;
+  positionName: string;
+  categoryId: string;
+  categoryName: string;
+  isIncome: boolean;
+  sortOrder: number;
+  months: PositionPlanActualMonth[];
+  yearPlanned: number;
+  yearActual: number;
+}
+
+export interface PlanActualByPositionReport {
+  positions: PositionPlanActualRow[];
+}
