@@ -181,6 +181,123 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
     }
 
     [Fact]
+    public async Task Reports_daily_liquidity_applies_opening_balance_exact_day_and_even_distribution()
+    {
+        var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
+        Assert.NotNull(baselines);
+        var primary = baselines.Single(b => b.IsPrimaryBudget && !b.IsSampleDemo);
+        var year = DateTime.UtcNow.Year;
+
+        using var createBaseline = await Http.PostAsJsonAsync(
+            "/baselines",
+            new CreateBaselineRequest("E2E liquidity baseline", "Draft"));
+        createBaseline.EnsureSuccessStatusCode();
+        var baseline = await createBaseline.Content.ReadFromJsonAsync<BaselineRow>(JsonOpts);
+        Assert.NotNull(baseline);
+
+        var categories = await Http.GetFromJsonAsync<List<CategoryJson>>("/categories", JsonOpts);
+        Assert.NotNull(categories);
+        var expenseCategoryId = categories.First(c => !c.IsIncome).Id;
+
+        using var createExact = await Http.PostAsJsonAsync(
+            $"/baselines/{baseline.Id}/positions",
+            new CreatePositionRequest(
+                expenseCategoryId,
+                "Liquidity exact day",
+                BudgetCadence.Monthly,
+                new DateOnly(year, 1, 1),
+                null,
+                0m,
+                1)
+            {
+                DistributionMode = BudgetDistributionMode.ExactDayOfMonth,
+                DayOfMonth = 31
+            });
+        createExact.EnsureSuccessStatusCode();
+        var exact = await createExact.Content.ReadFromJsonAsync<PositionRow>(JsonOpts);
+        Assert.NotNull(exact);
+
+        using var createEven = await Http.PostAsJsonAsync(
+            $"/baselines/{baseline.Id}/positions",
+            new CreatePositionRequest(
+                expenseCategoryId,
+                "Liquidity even",
+                BudgetCadence.Monthly,
+                new DateOnly(year, 1, 1),
+                null,
+                0m,
+                2)
+            {
+                DistributionMode = BudgetDistributionMode.EvenlyDistributed
+            });
+        createEven.EnsureSuccessStatusCode();
+        var even = await createEven.Content.ReadFromJsonAsync<PositionRow>(JsonOpts);
+        Assert.NotNull(even);
+
+        using var patchPlanned = await Http.PatchAsJsonAsync(
+            "/planned-amounts",
+            new BatchUpsertPlannedAmountsRequest(
+                new[]
+                {
+                    new PlannedAmountUpsertRequest(exact.Id, year, 2, 100m),
+                    new PlannedAmountUpsertRequest(even.Id, year, 3, 100m)
+                }));
+        patchPlanned.EnsureSuccessStatusCode();
+
+        var report = await Http.GetFromJsonAsync<DailyLiquidityJson>(
+            $"/reports/daily-liquidity?baselineId={baseline.Id}&year={year}",
+            JsonOpts);
+        Assert.NotNull(report);
+        Assert.Equal(0m, report.OpeningBalance);
+
+        var febLastDay = DateTime.DaysInMonth(year, 2);
+        var febPoint = report.Days.Single(d => d.Date == $"{year}-02-{febLastDay:00}");
+        Assert.Equal(-100m, febPoint.DailyNet);
+
+        var marchFirst = report.Days.Single(d => d.Date == $"{year}-03-01");
+        var marchLast = report.Days.Single(d => d.Date == $"{year}-03-31");
+        Assert.Equal(-3.23m, marchFirst.DailyNet);
+        Assert.Equal(-3.10m, marchLast.DailyNet);
+
+        var expectedDayCount = DateTime.IsLeapYear(year) ? 366 : 365;
+        Assert.Equal(expectedDayCount, report.Days.Count);
+
+        using var cleanupPositionEven = await Http.DeleteAsync($"/baselines/{baseline.Id}/positions/{even.Id}");
+        cleanupPositionEven.EnsureSuccessStatusCode();
+        using var cleanupPositionExact = await Http.DeleteAsync($"/baselines/{baseline.Id}/positions/{exact.Id}");
+        cleanupPositionExact.EnsureSuccessStatusCode();
+        using var cleanupBaseline = await Http.DeleteAsync($"/baselines/{baseline.Id}");
+        cleanupBaseline.EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task Sample_demo_daily_liquidity_reflects_payment_schedule()
+    {
+        var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
+        Assert.NotNull(baselines);
+        var sample = baselines.Single(b => b.IsSampleDemo);
+        var year = DateTime.UtcNow.Year;
+
+        var report = await Http.GetFromJsonAsync<DailyLiquidityJson>(
+            $"/reports/daily-liquidity?baselineId={sample.Id}&year={year}",
+            JsonOpts);
+        Assert.NotNull(report);
+
+        var salaryDay = report.Days.Single(d => d.Date == $"{year}-01-25");
+        Assert.True(salaryDay.DailyNet > 2000m, "Net salary should land on the 25th.");
+
+        var rentDay = report.Days.Single(d => d.Date == $"{year}-01-03");
+        Assert.True(rentDay.DailyNet < -700m, "Rent should debit on the 3rd.");
+
+        var january = report.Days.Where(d => d.Date.StartsWith($"{year}-01-", StringComparison.Ordinal)).ToList();
+        var activeJanuaryDays = january.Count(d => d.DailyNet != 0);
+        Assert.True(activeJanuaryDays >= 20, "Evenly distributed lines should keep most January days active.");
+
+        var day1 = january.Single(d => d.Date.EndsWith("-01", StringComparison.Ordinal));
+        Assert.True(day1.DailyNet < 500m, "Income should not all land on the 1st.");
+    }
+
+    [Fact]
     public async Task Upload_attachment_rejects_payload_with_mismatching_file_signature()
     {
         var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
@@ -279,6 +396,7 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
         AssertOk(await Http.GetAsync($"/reports/by-category?baselineId={sample.Id}&year={year}"));
         AssertOk(await Http.GetAsync($"/reports/monthly-cashflow?baselineId={sample.Id}&year={year}"));
         AssertOk(await Http.GetAsync($"/reports/plan-actual-by-position?baselineId={sample.Id}&year={year}"));
+        AssertOk(await Http.GetAsync($"/reports/daily-liquidity?baselineId={sample.Id}&year={year}"));
 
         AssertOk(await Http.GetAsync($"/baselines/{sample.Id}/compare?otherId={primary.Id}&year={year}"));
         AssertOk(await Http.GetAsync($"/baselines/{sample.Id}/categories"));
@@ -437,5 +555,18 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
     {
         public decimal Amount { get; set; }
         public bool IsOverride { get; set; }
+    }
+
+    private sealed class DailyLiquidityJson
+    {
+        public decimal OpeningBalance { get; set; }
+        public List<DailyLiquidityDayJson> Days { get; set; } = [];
+    }
+
+    private sealed class DailyLiquidityDayJson
+    {
+        public string Date { get; set; } = "";
+        public decimal DailyNet { get; set; }
+        public decimal RunningBalance { get; set; }
     }
 }

@@ -1,2 +1,2 @@
-export const APP_VERSION = '1.0.14';
-export const APP_BUILD_TIMESTAMP_UTC = '2026-05-17T04:09:04.012Z';
+export const APP_VERSION = '1.0.15';
+export const APP_BUILD_TIMESTAMP_UTC = '2026-05-17T06:15:47.581Z';

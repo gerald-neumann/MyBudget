@@ -17,7 +17,14 @@ public class PositionsController(
     IBaselineAccessService baselineAccessService) : ControllerBase
 {
     private static BudgetRecurrenceRuleDto ToRecurrenceRuleDto(BudgetRecurrenceRule rule) =>
-        new(rule.Cadence, rule.StartDate, rule.EndDate, rule.DefaultAmount, rule.IntervalMonths);
+        new(
+            rule.Cadence,
+            rule.StartDate,
+            rule.EndDate,
+            rule.DefaultAmount,
+            rule.IntervalMonths,
+            rule.DistributionMode,
+            rule.DayOfMonth);
 
     /// <summary>
     /// Matches <see cref="BudgetRecurrenceRule.GetExpectedMonths"/> materialization: clamp to 2–24, default when null.
@@ -142,7 +149,9 @@ public class PositionsController(
                 request.StartDate,
                 request.EndDate,
                 request.DefaultAmount,
-                intervalMonths)
+                intervalMonths,
+                request.DistributionMode,
+                request.DayOfMonth)
         };
 
         dbContext.Positions.Add(position);
@@ -214,7 +223,9 @@ public class PositionsController(
             request.StartDate,
             request.EndDate,
             request.DefaultAmount,
-            intervalMonths);
+            intervalMonths,
+            request.DistributionMode,
+            request.DayOfMonth);
 
         var updatedRule = BudgetRecurrenceRule.Resolve(
             position.Cadence,

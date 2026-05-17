@@ -91,31 +91,42 @@ public class UserWorkspaceBootstrapper(
         decimal DefaultAmount,
         BudgetCadence Cadence = BudgetCadence.Monthly,
         int YearlyMonth = 1,
-        int YearlyDay = 1);
+        int YearlyDay = 1,
+        BudgetDistributionMode DistributionMode = BudgetDistributionMode.ExactDayOfMonth,
+        int? DayOfMonth = null);
+
+    private static string BuildSampleRecurrenceRuleJson(SamplePositionSpec spec, DateOnly startDate) =>
+        BudgetRecurrenceRule.ToJson(
+            spec.Cadence,
+            startDate,
+            null,
+            spec.DefaultAmount,
+            distributionMode: spec.DistributionMode,
+            dayOfMonth: spec.DayOfMonth);
 
     private static readonly SamplePositionSpec[] SamplePositionSpecs =
     [
-        new(1, "sample.positions.netSalary", "Income", 2400),
+        new(1, "sample.positions.netSalary", "Income", 2400, DayOfMonth: 25),
         new(2, "sample.positions.summerBonus", "Income", 2250, BudgetCadence.Yearly, 6, 28),
         new(3, "sample.positions.winterBonus", "Income", 2380, BudgetCadence.Yearly, 11, 25),
-        new(4, "sample.positions.otherIncome", "Income", 35),
-        new(10, "sample.positions.rent", "Housing", 750),
-        new(11, "sample.positions.utilities", "Utilities", 220),
-        new(12, "sample.positions.mobilePlan", "Utilities", 38),
-        new(20, "sample.positions.groceries", "Food & groceries", 520),
-        new(30, "sample.positions.carInsurance", "Insurance", 65),
-        new(40, "sample.positions.fuel", "Transport", 140),
-        new(50, "sample.positions.streaming", "Subscriptions", 48),
-        new(60, "sample.positions.newspaper", "Subscriptions", 32),
-        new(70, "sample.positions.gym", "Health", 55),
-        new(80, "sample.positions.diningOut", "Discretionary / fun", 200),
-        new(90, "sample.positions.pets", "Pets", 75),
-        new(100, "sample.positions.parking", "Transport", 50),
-        new(110, "sample.positions.emergencyFund", "Savings & investments", 300),
-        new(120, "sample.positions.vacation", "One-off / large purchases", 130),
-        new(130, "sample.positions.christmasGifts", "One-off / large purchases", 50),
-        new(140, "sample.positions.birthdayGifts", "One-off / large purchases", 35),
-        new(150, "sample.positions.clothes", "Discretionary / fun", 90)
+        new(4, "sample.positions.otherIncome", "Income", 35, DistributionMode: BudgetDistributionMode.EvenlyDistributed),
+        new(10, "sample.positions.rent", "Housing", 750, DayOfMonth: 3),
+        new(11, "sample.positions.utilities", "Utilities", 220, DayOfMonth: 12),
+        new(12, "sample.positions.mobilePlan", "Utilities", 38, DayOfMonth: 7),
+        new(20, "sample.positions.groceries", "Food & groceries", 520, DistributionMode: BudgetDistributionMode.EvenlyDistributed),
+        new(30, "sample.positions.carInsurance", "Insurance", 65, DayOfMonth: 10),
+        new(40, "sample.positions.fuel", "Transport", 140, DistributionMode: BudgetDistributionMode.EvenlyDistributed),
+        new(50, "sample.positions.streaming", "Subscriptions", 48, DayOfMonth: 5),
+        new(60, "sample.positions.newspaper", "Subscriptions", 32, DayOfMonth: 9),
+        new(70, "sample.positions.gym", "Health", 55, DayOfMonth: 2),
+        new(80, "sample.positions.diningOut", "Discretionary / fun", 200, DistributionMode: BudgetDistributionMode.EvenlyDistributed),
+        new(90, "sample.positions.pets", "Pets", 75, DayOfMonth: 16),
+        new(100, "sample.positions.parking", "Transport", 50, DayOfMonth: 11),
+        new(110, "sample.positions.emergencyFund", "Savings & investments", 300, DayOfMonth: 28),
+        new(120, "sample.positions.vacation", "One-off / large purchases", 130, DistributionMode: BudgetDistributionMode.EvenlyDistributed),
+        new(130, "sample.positions.christmasGifts", "One-off / large purchases", 50, DistributionMode: BudgetDistributionMode.EvenlyDistributed),
+        new(140, "sample.positions.birthdayGifts", "One-off / large purchases", 35, DistributionMode: BudgetDistributionMode.EvenlyDistributed),
+        new(150, "sample.positions.clothes", "Discretionary / fun", 90, DistributionMode: BudgetDistributionMode.EvenlyDistributed)
     ];
 
     private static DateOnly GetSampleSpecStartDate(SamplePositionSpec spec)
@@ -379,7 +390,7 @@ public class UserWorkspaceBootstrapper(
                     EndDate = null,
                     DefaultAmount = spec.DefaultAmount,
                     SortOrder = spec.SortOrder,
-                    RecurrenceRuleJson = BudgetRecurrenceRule.ToJson(spec.Cadence, startDate, null, spec.DefaultAmount)
+                    RecurrenceRuleJson = BuildSampleRecurrenceRuleJson(spec, startDate)
                 });
         }
 
@@ -706,7 +717,7 @@ public class UserWorkspaceBootstrapper(
             }
 
             var startDate = GetSampleSpecStartDate(spec);
-            var ruleJson = BudgetRecurrenceRule.ToJson(spec.Cadence, startDate, null, spec.DefaultAmount);
+            var ruleJson = BuildSampleRecurrenceRuleJson(spec, startDate);
 
             if (byName.TryGetValue(spec.NameKey, out var existing))
             {

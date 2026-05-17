@@ -103,12 +103,16 @@
     @if (loading()) {
       <p class="shrink-0 text-sm text-violet-600">{{ t('budget.loading') }}</p>
     } @else {
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded border border-violet-100">
+      <div #budgetPageBody class="budget-page-body min-h-0 min-w-0 overflow-hidden rounded border border-violet-100">
         <div
-          class="app-budget-scroll flex min-h-0 min-w-0 flex-1 flex-col items-start overflow-auto overscroll-x-contain overscroll-y-contain touch-pan-x [-webkit-overflow-scrolling:touch]"
-          (scroll)="onScrollRefreshCategorySuggest($event)"
+          class="app-budget-h-track flex min-h-0 min-w-0 flex-1 flex-col items-start overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]"
         >
-          <div class="budget-grid-inner">
+          <div class="app-budget-track-inner flex min-h-0 min-w-0 flex-1 flex-col">
+            <div
+              class="app-budget-scroll flex min-h-0 min-w-0 flex-1 flex-col items-start overflow-x-hidden overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+              (scroll)="onScrollRefreshCategorySuggest($event)"
+            >
+              <div class="budget-grid-inner">
             <table class="budget-table budget-table-data shrink-0 text-sm">
               <colgroup>
                 <col class="budget-col-position" />
@@ -129,7 +133,16 @@
                   </th>
                   @for (month of months; track month) {
                     <th
-                      class="budget-table-month-cell whitespace-nowrap border-b border-r border-violet-100 bg-violet-50 px-0.5 py-2 text-right text-xs font-medium text-violet-800 sm:px-1 sm:text-sm"
+                      scope="col"
+                      tabindex="0"
+                      role="button"
+                      class="budget-table-month-cell budget-table-month-header whitespace-nowrap border-b border-r border-violet-100 bg-violet-50 px-0.5 py-2 text-right text-xs font-medium text-violet-800 sm:px-1 sm:text-sm"
+                      [class.budget-table-month-header--active]="liquidityFocusMonth() === month"
+                      [attr.aria-pressed]="liquidityFocusMonth() === month"
+                      [attr.aria-label]="t('budget.cashflowFocusMonth', { month: monthLabel(month) })"
+                      (click)="focusCashflowMonth(month)"
+                      (keydown.enter)="focusCashflowMonth(month)"
+                      (keydown.space)="$event.preventDefault(); focusCashflowMonth(month)"
                     >
                       {{ monthLabel(month) }}
                     </th>
@@ -266,7 +279,11 @@
               </tbody>
             </table>
             <div class="budget-grid-flex-spacer min-h-0 flex-1" aria-hidden="true"></div>
-            <div class="app-budget-summary min-w-0 shrink-0 border-t-2 border-violet-200 bg-violet-100 shadow-[0_-6px_16px_-8px_var(--app-shadow-color)]">
+          </div>
+        </div>
+        <div
+          class="app-budget-summary min-w-0 shrink-0 border-t-2 border-violet-200 bg-violet-100 shadow-[0_-6px_16px_-8px_var(--app-shadow-color)]"
+        >
             <table class="budget-table budget-table-summary text-xs font-medium sm:text-sm">
               <colgroup>
                 <col class="budget-col-position" />
@@ -334,6 +351,47 @@
             </div>
           </div>
         </div>
+        @if (showCashflowSection()) {
+        <div class="budget-cashflow-card min-w-0 shrink-0 border-t border-violet-100 bg-white/90">
+          <div class="budget-cashflow-chart min-h-0">
+              <div class="budget-cashflow-overlays">
+                <span class="budget-cashflow-month-badge" aria-hidden="true">
+                  @if (liquidityChartZoom() === 'month') {
+                    {{ cashflowMonthBadgeLabel() }}
+                  } @else {
+                    {{ state.selectedYear() }}
+                  }
+                </span>
+                <button type="button" class="budget-cashflow-overlay-btn budget-cashflow-overlay-btn--prev" [attr.aria-label]="t('budget.cashflowPrevMonth')" (click)="shiftCashflowMonth(-1)">
+                  <span class="fa-sharp fa-solid fa-chevron-left text-sm leading-none" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="budget-cashflow-overlay-btn budget-cashflow-overlay-btn--next" [attr.aria-label]="t('budget.cashflowNextMonth')" (click)="shiftCashflowMonth(1)">
+                  <span class="fa-sharp fa-solid fa-chevron-right text-sm leading-none" aria-hidden="true"></span>
+                </button>
+                <div class="budget-cashflow-overlay-zoom" role="group" [attr.aria-label]="t('budget.cashflowZoomAria')">
+                  <button type="button" class="budget-cashflow-overlay-btn budget-cashflow-overlay-btn--zoom" [attr.aria-label]="t('budget.cashflowZoomOut')" [disabled]="liquidityChartZoom() === 'year'" (click)="cashflowZoomOut()">
+                    <span class="fa-sharp fa-solid fa-minus text-xs leading-none" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="budget-cashflow-overlay-btn budget-cashflow-overlay-btn--zoom" [attr.aria-label]="t('budget.cashflowZoomIn')" [disabled]="liquidityChartZoom() === 'month'" (click)="cashflowZoomIn()">
+                    <span class="fa-sharp fa-solid fa-plus text-xs leading-none" aria-hidden="true"></span>
+                  </button>
+                </div>
+              </div>
+            @if (liquidityChartReady()) {
+              <canvas
+                baseChart
+                [data]="liquidityChartData"
+                [options]="liquidityChartOptions"
+                [plugins]="liquidityChartPlugins"
+                [type]="'line'"
+              ></canvas>
+            } @else {
+              <p class="px-3 py-2 text-sm text-violet-600">{{ t('budget.liquidityNoData') }}</p>
+              <p class="px-3 pb-2 text-xs text-violet-500">{{ t('budget.liquidityNoDataHint') }}</p>
+            }
+          </div>
+        </div>
+        }
       </div>
     }
 
@@ -444,6 +502,48 @@
               <option [value]="cadence">{{ cadenceLabel(cadence) }}</option>
             }
           </select>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div [ngClass]="newPosition.distributionMode === 'ExactDayOfMonth' ? 'sm:col-span-1' : 'sm:col-span-2'">
+              <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-distribution-mode">{{
+                t('budget.distributionMode')
+              }}</label>
+              <select
+                id="new-pos-distribution-mode"
+                [(ngModel)]="newPosition.distributionMode"
+                class="min-h-10 w-full rounded border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                (ngModelChange)="onNewPositionDistributionModeChange($event)"
+              >
+                @for (mode of distributionModes; track mode) {
+                  <option [value]="mode">{{ distributionModeLabel(mode) }}</option>
+                }
+              </select>
+            </div>
+            @if (newPosition.distributionMode === 'ExactDayOfMonth') {
+              <div>
+                <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-day-of-month">{{
+                  t('budget.dayOfMonth')
+                }}</label>
+                <input
+                  id="new-pos-day-of-month"
+                  type="number"
+                  min="1"
+                  max="31"
+                  step="1"
+                  [(ngModel)]="newPosition.dayOfMonth"
+                  class="min-h-10 w-full rounded border px-3 py-2 text-sm tabular-nums outline-none sm:min-h-0"
+                  [ngClass]="
+                    showNewPositionSheetValidation() && newPositionDayOfMonthInvalid()
+                      ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                      : 'border-violet-200 bg-violet-50 text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                  "
+                  [attr.aria-invalid]="showNewPositionSheetValidation() && newPositionDayOfMonthInvalid() ? 'true' : null"
+                />
+                @if (showNewPositionSheetValidation() && newPositionDayOfMonthInvalid()) {
+                  <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.dayOfMonth') }}</p>
+                }
+              </div>
+            }
+          </div>
           @if (newPosition.cadence === 'EveryNMonths') {
             <div>
               <label class="mb-1 block text-xs font-medium text-violet-700" for="new-pos-interval">{{
@@ -664,6 +764,48 @@
               <option [value]="cadence">{{ cadenceLabel(cadence) }}</option>
             }
           </select>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div [ngClass]="editPositionDraft.distributionMode === 'ExactDayOfMonth' ? 'sm:col-span-1' : 'sm:col-span-2'">
+              <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-distribution-mode-modal">{{
+                t('budget.distributionMode')
+              }}</label>
+              <select
+                id="edit-pos-distribution-mode-modal"
+                [(ngModel)]="editPositionDraft.distributionMode"
+                class="min-h-10 w-full rounded border border-violet-200 bg-white px-3 py-2 text-sm text-violet-900 sm:min-h-0"
+                (ngModelChange)="onEditPositionDistributionModeChange($event)"
+              >
+                @for (mode of distributionModes; track mode) {
+                  <option [value]="mode">{{ distributionModeLabel(mode) }}</option>
+                }
+              </select>
+            </div>
+            @if (editPositionDraft.distributionMode === 'ExactDayOfMonth') {
+              <div>
+                <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-day-of-month-modal">{{
+                  t('budget.dayOfMonth')
+                }}</label>
+                <input
+                  id="edit-pos-day-of-month-modal"
+                  type="number"
+                  min="1"
+                  max="31"
+                  step="1"
+                  [(ngModel)]="editPositionDraft.dayOfMonth"
+                  class="min-h-10 w-full rounded border px-3 py-2 text-sm tabular-nums outline-none sm:min-h-0"
+                  [ngClass]="
+                    showEditPositionValidation() && editPositionDayOfMonthInvalid()
+                      ? 'border-rose-400 bg-rose-50/80 text-rose-900 ring-1 ring-rose-200 focus:border-rose-500 focus:ring-rose-200'
+                      : 'border-violet-200 bg-white text-violet-900 focus:border-violet-400 focus:ring-1 focus:ring-violet-300'
+                  "
+                  [attr.aria-invalid]="showEditPositionValidation() && editPositionDayOfMonthInvalid() ? 'true' : null"
+                />
+                @if (showEditPositionValidation() && editPositionDayOfMonthInvalid()) {
+                  <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.dayOfMonth') }}</p>
+                }
+              </div>
+            }
+          </div>
           @if (hasBudgetRule(editPositionDraft.cadence) && editPositionDraft.cadence === 'EveryNMonths') {
             <div>
               <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-interval-modal">{{

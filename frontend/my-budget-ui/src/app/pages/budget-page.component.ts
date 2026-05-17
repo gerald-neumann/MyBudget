@@ -1,8 +1,10 @@
 import { CommonModule, DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, DestroyRef, effect, HostListener, inject, signal } from '@angular/core';
+import { Component, DestroyRef, effect, ElementRef, HostListener, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { BaseChartDirective } from 'ng2-charts';
+import { ChartConfiguration, Plugin } from 'chart.js';
 import { bufferTime, catchError, defer, EMPTY, filter, finalize, forkJoin, map, of, Subject, switchMap, tap } from 'rxjs';
 import { BudgetApiService } from '../core/budget-api.service';
 import { BudgetStateService } from '../core/budget-state.service';
@@ -20,11 +22,12 @@ import {
   shouldKeyboardConfirmFromTarget
 } from '../core/keyboard-confirm-cancel';
 import { selectAllOnFocusedNumericInput } from '../core/numeric-input-focus';
-import { BudgetCadence, BudgetPosition, Category } from '../core/budget.models';
+import { computeDailyLiquidity, dailyLiquidityHasActivity } from '../core/daily-liquidity';
+import { BudgetCadence, BudgetDistributionMode, BudgetPosition, Category, DailyLiquidityPoint } from '../core/budget.models';
 
 @Component({
   selector: 'app-budget-page',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, BaseChartDirective],
   templateUrl: './budget-page.component.html',
   styleUrl: './budget-page.component.css',
   host: {
@@ -39,7 +42,16 @@ export class BudgetPageComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly documentRef = inject(DOCUMENT);
   private readonly keyboardAdd = inject(KeyboardAddShortcutService);
-
+  private readonly liquidityFocusMonthStorageKey = 'mybudget.v1.budgetLiquidityFocusMonth';
+  private readonly liquidityPreviewRevision = signal(0);
+  /** Min height reserved for table + summary inside `.budget-page-body` before showing cashflow. */
+  private static readonly cashflowMinTableAreaPx = 200;
+  /** Matches `.budget-cashflow-chart` height in CSS (9.5rem @ 16px). */
+  private static readonly cashflowChartHeightPx = 152;
+  private static readonly cashflowMinBodyWidthPx = 280;
+  private readonly budgetPageBody = viewChild<ElementRef<HTMLElement>>('budgetPageBody');
+  /** False until the body is tall/wide enough to show the chart without clipping. */
+  readonly showCashflowSection = signal(false);
   yearToolbarLabelClasses(): string {
     return 'select-none inline-flex items-center gap-1 text-xs font-semibold text-amber-900';
   }
@@ -58,15 +70,30 @@ export class BudgetPageComponent {
 
   /** Incremented to re-fetch categories/positions when baseline/year are unchanged (e.g. after server-side mutations). */
   private readonly budgetDataReload = signal(0);
+  /** Incremented to re-fetch liquidity graph without reloading whole budget grid. */
+  private readonly liquidityDataReload = signal(0);
 
   readonly months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
   readonly cadences: BudgetCadence[] = ['None', 'Monthly', 'Yearly', 'EveryNMonths'];
+  readonly distributionModes: BudgetDistributionMode[] = ['ExactDayOfMonth', 'EvenlyDistributed'];
 
   categories: Category[] = [];
   positions: BudgetPosition[] = [];
   /** Signal (not a plain field) so async load completion always schedules a view refresh. */
   readonly loading = signal(false);
+  /** Defer `baseChart` until series exist (ng2-charts empty-first render bug). */
+  readonly liquidityChartReady = signal(false);
+  readonly liquidityFocusMonth = signal(this.readLiquidityFocusMonth());
+  /** `year` = whole selected year; `month` = focused month at day resolution. */
+  readonly liquidityChartZoom = signal<'year' | 'month'>('year');
+  private liquidityAllDays: DailyLiquidityPoint[] = [];
+  liquidityChartPlugins: Plugin<'line'>[] = [];
+  liquidityChartData: ChartConfiguration<'line'>['data'] = { labels: [], datasets: [] };
+  liquidityChartOptions: ChartConfiguration<'line'>['options'] = {
+    responsive: true,
+    maintainAspectRatio: false
+  };
   savingCells = false;
   message = '';
   messageType: 'success' | 'error' = 'success';
@@ -85,6 +112,8 @@ export class BudgetPageComponent {
     name: '',
     categoryName: '',
     cadence: 'None' as BudgetCadence,
+    distributionMode: 'ExactDayOfMonth' as BudgetDistributionMode,
+    dayOfMonth: new Date().getDate() as number | null,
     startDate: this.toDateInput(new Date()),
     endDate: '' as string | null,
     defaultAmount: 0,
@@ -111,6 +140,8 @@ export class BudgetPageComponent {
     name: string;
     categoryName: string;
     cadence: BudgetCadence;
+    distributionMode: BudgetDistributionMode;
+    dayOfMonth: number | null;
     startDate: string;
     endDate: string;
     defaultAmount: number;
@@ -187,6 +218,7 @@ export class BudgetPageComponent {
             next: () => {
               this.savingCells = false;
               this.setMessage('msg.savePlannedSuccess', 'success');
+              this.liquidityDataReload.update((n) => n + 1);
             },
             error: () => {
               this.savingCells = false;
@@ -199,6 +231,7 @@ export class BudgetPageComponent {
       const baselineId = this.state.selectedBaselineId();
       const year = this.state.selectedYear();
       this.budgetDataReload();
+      this.liquidityDataReload();
       if (!baselineId) {
         this.loading.set(false);
         return;
@@ -221,6 +254,7 @@ export class BudgetPageComponent {
             this.amountEdit = null;
             this.categories = response.categories;
             this.positions = response.positions;
+            this.refreshLiquidityChartFromPositions();
             const idSet = new Set(this.positions.map((p) => p.id));
             const editingId = this.editPositionDraft?.id;
             if (editingId && !idSet.has(editingId)) {
@@ -242,8 +276,57 @@ export class BudgetPageComponent {
     });
 
     effect(() => {
+      this.state.selectedYear();
+      this.liquidityFocusMonth.set(this.defaultLiquidityFocusMonth());
+      this.liquidityChartZoom.set('year');
+    });
+
+    effect(() => {
+      this.liquidityDataReload();
+      this.liquidityPreviewRevision();
+      const baselineId = this.state.selectedBaselineId();
+      if (!baselineId) {
+        this.clearLiquidityChart();
+        return;
+      }
+      this.refreshLiquidityChartFromPositions();
+    });
+
+    effect(() => {
+      this.liquidityFocusMonth();
+      this.liquidityChartZoom();
+      if (this.liquidityAllDays.length > 0) {
+        this.rebuildLiquidityChart();
+      }
+    });
+
+    effect(() => {
       this.i18n.language();
       this.amountEdit = null;
+      if (this.liquidityAllDays.length > 0) {
+        this.rebuildLiquidityChart();
+      }
+    });
+
+    effect((onCleanup) => {
+      if (this.loading()) {
+        return;
+      }
+      const el = this.budgetPageBody()?.nativeElement;
+      if (!el) {
+        return;
+      }
+      const minHeight =
+        BudgetPageComponent.cashflowChartHeightPx + BudgetPageComponent.cashflowMinTableAreaPx;
+      const minWidth = BudgetPageComponent.cashflowMinBodyWidthPx;
+      const update = () => {
+        const rect = el.getBoundingClientRect();
+        this.showCashflowSection.set(rect.height >= minHeight && rect.width >= minWidth);
+      };
+      const observer = new ResizeObserver(() => update());
+      observer.observe(el);
+      update();
+      onCleanup(() => observer.disconnect());
     });
 
     const onBudgetPointerDownCapture = (ev: Event) => this.onDocumentPointerDownBudgetInlineCancel(ev);
@@ -486,6 +569,9 @@ export class BudgetPageComponent {
       return;
     }
     this.amountEdit = { ...ctx, draft: raw };
+    if (ctx.kind === 'cell') {
+      this.liquidityPreviewRevision.update((n) => n + 1);
+    }
   }
 
   onAmountFieldBlur(event?: FocusEvent): void {
@@ -553,6 +639,294 @@ export class BudgetPageComponent {
 
   getYearNetTotal(): number {
     return this.months.reduce((sum, month) => sum + this.getColumnTotal(month), 0);
+  }
+
+  focusCashflowMonth(month: number): void {
+    this.setLiquidityFocusMonth(month, { zoomToMonth: true });
+  }
+
+  shiftCashflowMonth(delta: number): void {
+    this.setLiquidityFocusMonth(this.wrapMonth(this.liquidityFocusMonth() + delta));
+  }
+
+  private setLiquidityFocusMonth(month: number, options?: { zoomToMonth?: boolean }): void {
+    const normalized = Math.min(12, Math.max(1, Math.round(month)));
+    this.liquidityFocusMonth.set(normalized);
+    if (options?.zoomToMonth) {
+      this.liquidityChartZoom.set('month');
+    }
+    this.persistLiquidityFocusMonth(normalized);
+    this.rebuildLiquidityChart();
+  }
+
+  cashflowZoomIn(): void {
+    if (this.liquidityChartZoom() === 'month') {
+      return;
+    }
+    this.liquidityChartZoom.set('month');
+    this.rebuildLiquidityChart();
+  }
+
+  cashflowZoomOut(): void {
+    if (this.liquidityChartZoom() === 'year') {
+      return;
+    }
+    this.liquidityChartZoom.set('year');
+    this.rebuildLiquidityChart();
+  }
+
+  private refreshLiquidityChartFromPositions(): void {
+    const year = this.state.selectedYear();
+    const days = computeDailyLiquidity({
+      year,
+      positions: this.positions,
+      isIncome: (categoryId) => this.isIncomeCategory(categoryId),
+      resolveStoredAmount: (positionId, month) => this.resolveLiquidityStoredAmount(positionId, month)
+    });
+    this.applyLiquidityChart(0, days);
+  }
+
+  private resolveLiquidityStoredAmount(positionId: string, month: number): number {
+    const position = this.positions.find((p) => p.id === positionId);
+    if (!position) {
+      return 0;
+    }
+    const edit = this.amountEdit;
+    if (edit?.kind === 'cell' && edit.positionId === positionId && edit.month === month) {
+      const parsed = this.i18n.parseAmount(edit.draft);
+      if (parsed === null) {
+        return this.getCellAmount(position, month);
+      }
+      return this.toStoredPlannedAmount(position.categoryId, parsed);
+    }
+    return this.getCellAmount(position, month);
+  }
+
+  private clearLiquidityChart(): void {
+    this.liquidityAllDays = [];
+    this.liquidityChartData = { labels: [], datasets: [] };
+    this.liquidityChartPlugins = [];
+    this.liquidityChartReady.set(false);
+  }
+
+  private applyLiquidityChart(_openingBalance: number, days: DailyLiquidityPoint[]): void {
+    this.liquidityAllDays = days.map((d) => ({
+      date: this.normalizeLiquidityDate(d.date),
+      dailyNet: d.dailyNet,
+      runningBalance: d.runningBalance
+    }));
+    this.rebuildLiquidityChart();
+    this.liquidityChartReady.set(dailyLiquidityHasActivity(this.liquidityAllDays));
+  }
+
+  private normalizeLiquidityDate(raw: string): string {
+    const value = String(raw ?? '').trim();
+    const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+    if (iso) {
+      return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    }
+    return value;
+  }
+
+  private rebuildLiquidityChart(): void {
+    const monthZoom = this.liquidityChartZoom() === 'month';
+    const focusMonth = this.liquidityFocusMonth();
+    const monthDays = this.liquidityAllDays.filter((d) => Number(d.date.slice(5, 7)) === focusMonth);
+    const days = monthZoom ? monthDays : this.liquidityAllDays;
+    const labels = days.map((day) => day.date);
+    this.liquidityChartData = {
+      labels,
+      datasets: [
+        {
+          label: this.t('budget.liquidityRunningBalance'),
+          data: days.map((d) => d.runningBalance),
+          borderWidth: 2.5,
+          tension: monthZoom ? 0.2 : 0.08,
+          fill: {
+            target: 'origin',
+            above: 'rgba(22, 163, 74, 0.28)',
+            below: 'rgba(220, 38, 38, 0.28)'
+          },
+          segment: {
+            borderColor: (ctx) => {
+              const y = ctx.p1.parsed.y;
+              return typeof y === 'number' && y < 0 ? '#dc2626' : '#16a34a';
+            }
+          },
+          pointRadius: monthZoom ? 2 : 0,
+          pointHoverRadius: 4,
+          pointBackgroundColor: (ctx) => {
+            const y = ctx.parsed.y;
+            return typeof y === 'number' && y < 0 ? '#dc2626' : '#16a34a';
+          }
+        }
+      ]
+    };
+    this.liquidityChartPlugins = [
+      this.buildLiquidityZeroLinePlugin(),
+      this.buildLiquidityTodayMarkerPlugin(days)
+    ];
+    const visibleDays = days;
+    this.liquidityChartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: {
+        padding: {
+          top: 18,
+          bottom: 0,
+          left: 2,
+          right: 2
+        }
+      },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const index = items[0]?.dataIndex ?? 0;
+              return this.formatLiquidityTooltipDate(visibleDays[index]?.date ?? '');
+            },
+            label: (ctx) => {
+              const index = ctx.dataIndex ?? 0;
+              const point = visibleDays[index];
+              if (!point) {
+                return '';
+              }
+              return [
+                `${this.t('budget.liquidityRunningBalance')}: ${this.i18n.formatSignedAmount(point.runningBalance)}`,
+                `${this.t('budget.liquidityDailyNet')}: ${this.i18n.formatSignedAmount(point.dailyNet)}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          offset: false,
+          ticks: {
+            autoSkip: false,
+            maxRotation: monthZoom ? 0 : 45,
+            minRotation: 0,
+            maxTicksLimit: monthZoom ? 16 : 14,
+            padding: 0,
+            color: '#5b21b6',
+            font: { size: 10 },
+            callback: (_value, index) => this.formatLiquidityXTick(days[index]?.date ?? '', monthZoom, index, days.length)
+          },
+          grid: { color: 'rgba(148, 163, 184, 0.15)', drawOnChartArea: false }
+        },
+        y: {
+          grace: '8%',
+          ticks: {
+            padding: 2,
+            color: '#5b21b6',
+            font: { size: 10 },
+            callback: (v) => this.i18n.compactSignedAmountLabel(Number(v))
+          },
+          grid: { color: 'rgba(148, 163, 184, 0.25)' }
+        }
+      }
+    };
+    this.liquidityChartReady.set(dailyLiquidityHasActivity(this.liquidityAllDays));
+  }
+
+  private wrapMonth(month: number): number {
+    if (month < 1) {
+      return 12;
+    }
+    if (month > 12) {
+      return 1;
+    }
+    return month;
+  }
+
+  private formatLiquidityXTick(date: string, monthZoom: boolean, index: number, total: number): string {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (!m) {
+      return '';
+    }
+    const month = Number(m[2]);
+    const dayOfMonth = Number(m[3]);
+    if (dayOfMonth === 1) {
+      return monthZoom ? `${String(dayOfMonth).padStart(2, '0')}.${String(month).padStart(2, '0')}` : this.monthLabel(month);
+    }
+    if (monthZoom) {
+      if (total <= 10 || index % Math.max(1, Math.ceil(total / 8)) === 0) {
+        return `${String(dayOfMonth).padStart(2, '0')}.${String(month).padStart(2, '0')}`;
+      }
+      return '';
+    }
+    return '';
+  }
+
+  private formatLiquidityTooltipDate(date: string): string {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (!m) {
+      return date;
+    }
+    return `${m[3]}.${m[2]}.${m[1]}`;
+  }
+
+  private buildLiquidityZeroLinePlugin(): Plugin<'line'> {
+    return {
+      id: 'budget-liquidity-zero-line',
+      afterDatasetsDraw: (chart) => {
+        const yScale = chart.scales['y'];
+        if (!yScale || !Number.isFinite(yScale.getPixelForValue(0))) {
+          return;
+        }
+        const y = yScale.getPixelForValue(0);
+        const { left, right } = chart.chartArea;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(100, 116, 139, 0.55)';
+        ctx.moveTo(left, y);
+        ctx.lineTo(right, y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+  }
+
+  private buildLiquidityTodayMarkerPlugin(days: DailyLiquidityPoint[]): Plugin<'line'> {
+    const today = this.localIsoDate(new Date());
+    const todayIndex = days.findIndex((d) => d.date === today);
+    if (todayIndex < 0) {
+      return { id: 'budget-liquidity-today-marker-none' };
+    }
+    const todayLabel = this.t('budget.liquidityTodayLabel');
+    return {
+      id: 'budget-liquidity-today-marker',
+      afterDatasetsDraw: (chart) => {
+        const xScale = chart.scales['x'];
+        if (!xScale) {
+          return;
+        }
+        const x = xScale.getPixelForValue(todayIndex);
+        const { top, bottom } = chart.chartArea;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(220, 38, 38, 0.9)';
+        ctx.moveTo(x, top);
+        ctx.lineTo(x, bottom);
+        ctx.stroke();
+        ctx.font = '600 10px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(220, 38, 38, 0.95)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(todayLabel, x, 4);
+        ctx.restore();
+      }
+    };
   }
 
   private isIncomeCategory(categoryId: string): boolean {
@@ -832,6 +1206,8 @@ export class BudgetPageComponent {
     this.newPosition.categoryName = '';
     this.newPosition.cadence = 'None';
     this.newPosition.startDate = this.toDateInput(new Date());
+    this.newPosition.distributionMode = 'ExactDayOfMonth';
+    this.newPosition.dayOfMonth = this.dayOfMonthFromDate(this.newPosition.startDate);
     this.newPosition.endDate = '';
     this.newPositionSheetBanner = '';
     this.newPosition.defaultAmount = 0;
@@ -871,6 +1247,11 @@ export class BudgetPageComponent {
       name: this.newPosition.name.trim(),
       categoryKey,
       cadence: this.newPosition.cadence,
+      distributionMode: this.newPosition.distributionMode,
+      dayOfMonth:
+        this.newPosition.distributionMode === 'EvenlyDistributed'
+          ? null
+          : this.normalizeDayOfMonth(this.newPosition.dayOfMonth),
       startDate: this.newPosition.startDate,
       endDate,
       defaultAmount: amtKey,
@@ -922,11 +1303,17 @@ export class BudgetPageComponent {
   }
 
   private initEditDraftFromPosition(position: BudgetPosition): void {
+    const distributionMode = position.recurrenceRule?.distributionMode ?? 'ExactDayOfMonth';
     this.editPositionDraft = {
       id: position.id,
       name: position.name ?? '',
       categoryName: this.categoryDraftLabelForPosition(position),
       cadence: position.cadence,
+      distributionMode,
+      dayOfMonth:
+        distributionMode === 'EvenlyDistributed'
+          ? null
+          : this.normalizeDayOfMonth(position.recurrenceRule?.dayOfMonth ?? this.dayOfMonthFromDate(position.startDate)),
       startDate: position.startDate,
       endDate: position.cadence === 'None' ? '' : (position.endDate ?? ''),
       defaultAmount: position.defaultAmount,
@@ -1029,6 +1416,8 @@ export class BudgetPageComponent {
       name: d.name.trim(),
       categoryKey,
       cadence: d.cadence,
+      distributionMode: d.distributionMode,
+      dayOfMonth: d.distributionMode === 'EvenlyDistributed' ? null : this.normalizeDayOfMonth(d.dayOfMonth),
       startDate: d.startDate,
       endDate,
       defaultAmount: amtKey,
@@ -1127,11 +1516,17 @@ export class BudgetPageComponent {
     if (!d || d.id !== pos.id) {
       return;
     }
+    const distributionMode = pos.recurrenceRule?.distributionMode ?? 'ExactDayOfMonth';
     this.editPositionDraft = {
       id: pos.id,
       name: pos.name ?? '',
       categoryName: this.categoryDraftLabelForPosition(pos),
       cadence: pos.cadence,
+      distributionMode,
+      dayOfMonth:
+        distributionMode === 'EvenlyDistributed'
+          ? null
+          : this.normalizeDayOfMonth(pos.recurrenceRule?.dayOfMonth ?? this.dayOfMonthFromDate(pos.startDate)),
       startDate: pos.startDate,
       endDate: pos.cadence === 'None' ? '' : (pos.endDate ?? ''),
       defaultAmount: pos.defaultAmount,
@@ -1185,6 +1580,19 @@ export class BudgetPageComponent {
     }
   }
 
+  onEditPositionDistributionModeChange(mode: BudgetDistributionMode): void {
+    const d = this.editPositionDraft;
+    if (!d) {
+      return;
+    }
+    d.distributionMode = mode;
+    if (mode === 'EvenlyDistributed') {
+      d.dayOfMonth = null;
+      return;
+    }
+    d.dayOfMonth = this.normalizeDayOfMonth(d.dayOfMonth ?? this.dayOfMonthFromDate(d.startDate));
+  }
+
   onNewPositionCadenceChange(cadence: BudgetCadence): void {
     if (cadence === 'None') {
       this.newPosition.endDate = '';
@@ -1193,6 +1601,17 @@ export class BudgetPageComponent {
         this.newPosition.recurrenceIntervalMonths
       );
     }
+  }
+
+  onNewPositionDistributionModeChange(mode: BudgetDistributionMode): void {
+    this.newPosition.distributionMode = mode;
+    if (mode === 'EvenlyDistributed') {
+      this.newPosition.dayOfMonth = null;
+      return;
+    }
+    this.newPosition.dayOfMonth = this.normalizeDayOfMonth(
+      this.newPosition.dayOfMonth ?? this.dayOfMonthFromDate(this.newPosition.startDate)
+    );
   }
 
   showNewPositionSheetValidation(): boolean {
@@ -1242,6 +1661,13 @@ export class BudgetPageComponent {
     return this.isRecurrenceIntervalMonthsInvalid(this.newPosition.recurrenceIntervalMonths);
   }
 
+  newPositionDayOfMonthInvalid(): boolean {
+    if (this.newPosition.distributionMode !== 'ExactDayOfMonth') {
+      return false;
+    }
+    return this.isDayOfMonthInvalid(this.newPosition.dayOfMonth);
+  }
+
   editPositionNameInvalid(): boolean {
     const d = this.editPositionDraft;
     return !d || !d.name.trim();
@@ -1250,6 +1676,14 @@ export class BudgetPageComponent {
   editPositionCategoryInvalid(): boolean {
     const d = this.editPositionDraft;
     return !d || !this.hasValidCategoryDraft(d.categoryName);
+  }
+
+  editPositionDayOfMonthInvalid(): boolean {
+    const d = this.editPositionDraft;
+    if (!d || d.distributionMode !== 'ExactDayOfMonth') {
+      return false;
+    }
+    return this.isDayOfMonthInvalid(d.dayOfMonth);
   }
 
   editPositionStartInvalid(): boolean {
@@ -1323,7 +1757,8 @@ export class BudgetPageComponent {
       this.newPositionStartInvalid() ||
       this.newPositionEndBeforeStartInvalid() ||
       this.newPositionDefaultAmountInvalid() ||
-      this.newPositionRecurrenceIntervalInvalid()
+      this.newPositionRecurrenceIntervalInvalid() ||
+      this.newPositionDayOfMonthInvalid()
     );
   }
 
@@ -1340,7 +1775,8 @@ export class BudgetPageComponent {
       this.editPositionEndBeforeStartInvalid() ||
       this.editPositionDefaultAmountInvalid() ||
       this.editPositionPlannedApplyRangeInvalid() ||
-      this.editPositionRecurrenceIntervalInvalid()
+      this.editPositionRecurrenceIntervalInvalid() ||
+      this.editPositionDayOfMonthInvalid()
     );
   }
 
@@ -1442,6 +1878,8 @@ export class BudgetPageComponent {
       name: string;
       categoryName: string;
       cadence: BudgetCadence;
+      distributionMode: BudgetDistributionMode;
+      dayOfMonth: number | null;
       startDate: string;
       endDate: string;
       defaultAmount: number;
@@ -1460,7 +1898,9 @@ export class BudgetPageComponent {
       startDate,
       endDate,
       defaultAmount,
-      recurrenceIntervalMonths: draft.recurrenceIntervalMonths
+      recurrenceIntervalMonths: draft.recurrenceIntervalMonths,
+      distributionMode: draft.distributionMode,
+      dayOfMonth: draft.distributionMode === 'EvenlyDistributed' ? null : draft.dayOfMonth
     });
     const templateDriveChanged =
       draft.cadence !== position.cadence ||
@@ -1517,6 +1957,11 @@ export class BudgetPageComponent {
             endDate: noRule ? null : this.newPosition.endDate || null,
             defaultAmount: noRule ? 0 : this.toStoredPlannedAmount(categoryId, this.effectiveNewPositionDefaultAmount()),
             sortOrder: this.positions.length + 1,
+            distributionMode: this.newPosition.distributionMode,
+            dayOfMonth:
+              this.newPosition.distributionMode === 'EvenlyDistributed'
+                ? null
+                : this.normalizeDayOfMonth(this.newPosition.dayOfMonth ?? this.dayOfMonthFromDate(this.newPosition.startDate)),
             ...(this.newPosition.cadence === 'EveryNMonths'
               ? {
                   intervalMonths: this.normalizeRecurrenceIntervalMonths(this.newPosition.recurrenceIntervalMonths)
@@ -1683,6 +2128,11 @@ export class BudgetPageComponent {
     return this.t(`monthShort.${month}`);
   }
 
+  /** Cashflow month-zoom badge, e.g. "Jun 2026". */
+  cashflowMonthBadgeLabel(): string {
+    return `${this.monthLabel(this.liquidityFocusMonth())} ${this.state.selectedYear()}`;
+  }
+
   /** Modal heading: budget-rule dialog vs full position edit. */
   editPositionSheetTitle(): string {
     const d = this.editPositionDraft;
@@ -1703,6 +2153,10 @@ export class BudgetPageComponent {
       return this.t('budget.yearly');
     }
     return this.t('budget.everyNMonths');
+  }
+
+  distributionModeLabel(mode: BudgetDistributionMode): string {
+    return mode === 'EvenlyDistributed' ? this.t('budget.distributionModeEven') : this.t('budget.distributionModeExactDay');
   }
 
   t(key: string, params?: Record<string, string | number>): string {
@@ -1835,6 +2289,73 @@ export class BudgetPageComponent {
     return Math.min(24, Math.max(2, x));
   }
 
+  private isDayOfMonthInvalid(n: number | null): boolean {
+    if (n == null) {
+      return true;
+    }
+    const x = Number(n);
+    if (!Number.isFinite(x)) {
+      return true;
+    }
+    const rounded = Math.round(x);
+    return rounded < 1 || rounded > 31;
+  }
+
+  private normalizeDayOfMonth(n: number | null | undefined): number {
+    const x = Math.round(Number(n));
+    if (!Number.isFinite(x)) {
+      return 1;
+    }
+    return Math.min(31, Math.max(1, x));
+  }
+
+  private dayOfMonthFromDate(raw: string): number {
+    const date = String(raw ?? '').trim();
+    const parsed = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (!parsed) {
+      return 1;
+    }
+    const day = Number(parsed[3]);
+    return this.normalizeDayOfMonth(Number.isFinite(day) ? day : 1);
+  }
+
+  private readLiquidityFocusMonth(): number {
+    try {
+      const raw = localStorage.getItem(this.liquidityFocusMonthStorageKey);
+      const month = Number(raw);
+      if (Number.isFinite(month) && month >= 1 && month <= 12) {
+        return month;
+      }
+    } catch {
+      // Ignore storage failures.
+    }
+    return this.defaultLiquidityFocusMonth();
+  }
+
+  private persistLiquidityFocusMonth(month: number): void {
+    try {
+      localStorage.setItem(this.liquidityFocusMonthStorageKey, String(month));
+    } catch {
+      // Ignore storage failures.
+    }
+  }
+
+  private defaultLiquidityFocusMonth(): number {
+    const selectedYear = this.state.selectedYear();
+    const calendarYear = new Date().getFullYear();
+    if (selectedYear !== calendarYear) {
+      return 1;
+    }
+    return new Date().getMonth() + 1;
+  }
+
+  private localIsoDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   private recurrenceIntervalTemplateChanged(
     draft: { cadence: BudgetCadence; recurrenceIntervalMonths: number },
     position: BudgetPosition
@@ -1853,6 +2374,8 @@ export class BudgetPageComponent {
     overrides: Partial<Pick<BudgetPosition, 'categoryId' | 'name' | 'cadence' | 'startDate' | 'defaultAmount' | 'sortOrder'>> & {
       endDate?: string | null;
       recurrenceIntervalMonths?: number;
+      distributionMode?: BudgetDistributionMode;
+      dayOfMonth?: number | null;
     }
   ): {
     categoryId: string;
@@ -1863,6 +2386,8 @@ export class BudgetPageComponent {
     defaultAmount: number;
     sortOrder: number;
     intervalMonths?: number;
+    distributionMode?: BudgetDistributionMode;
+    dayOfMonth?: number | null;
   } {
     const merged = { ...position, ...overrides };
     const payload: {
@@ -1874,6 +2399,8 @@ export class BudgetPageComponent {
       defaultAmount: number;
       sortOrder: number;
       intervalMonths?: number;
+      distributionMode?: BudgetDistributionMode;
+      dayOfMonth?: number | null;
     } = {
       categoryId: merged.categoryId,
       name: merged.name.trim(),
@@ -1881,8 +2408,15 @@ export class BudgetPageComponent {
       startDate: merged.startDate,
       endDate: merged.endDate ?? null,
       defaultAmount: Number(merged.defaultAmount) || 0,
-      sortOrder: merged.sortOrder
+      sortOrder: merged.sortOrder,
+      distributionMode: overrides.distributionMode ?? position.recurrenceRule?.distributionMode ?? 'ExactDayOfMonth'
     };
+    payload.dayOfMonth =
+      payload.distributionMode === 'EvenlyDistributed'
+        ? null
+        : this.normalizeDayOfMonth(
+            overrides.dayOfMonth ?? position.recurrenceRule?.dayOfMonth ?? this.dayOfMonthFromDate(position.startDate)
+          );
     if (merged.cadence === 'EveryNMonths') {
       payload.intervalMonths = this.normalizeRecurrenceIntervalMonths(
         overrides.recurrenceIntervalMonths ?? position.recurrenceRule?.intervalMonths ?? 3

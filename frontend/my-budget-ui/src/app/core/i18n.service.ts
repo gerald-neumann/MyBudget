@@ -221,6 +221,28 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     'budget.deselectRow': 'Auswahl aufheben',
     'budget.monthlySum': 'Monatssumme',
     'budget.runningCashflow': 'Kumuliert',
+    'budget.liquidityTitle': 'Cashflow',
+    'budget.liquidityHint': 'Täglicher Verlauf aus geplanten Budgetbeträgen über das gesamte Jahr.',
+    'budget.liquidityExpand': 'Anzeigen',
+    'budget.liquidityCollapse': 'Einklappen',
+    'budget.liquidityZoomLabel': 'Ansicht',
+    'budget.liquidityZoomCurrentMonth': 'Aktueller Monat',
+    'budget.liquidityZoomYear': 'Ganzes Jahr',
+    'budget.liquidityOpeningBalance': 'Jahresstart (Budget-Basis)',
+    'budget.liquidityEndingBalance': 'Endsaldo',
+    'budget.liquidityRunningBalance': 'Kontostand',
+    'budget.liquidityDailyNet': 'Tagesfluss',
+    'budget.liquidityLoading': 'Liquiditätsdaten werden geladen...',
+    'budget.liquidityLoadFailed': 'Liquiditätsdaten konnten nicht geladen werden.',
+    'budget.liquidityNoData': 'Keine Tagesdaten verfügbar.',
+    'budget.liquidityNoDataHint': 'Trage geplante Beträge in der Tabelle oben ein — die Kurve aktualisiert sich beim Tippen.',
+    'budget.liquidityTodayLabel': 'Heute',
+    'budget.cashflowPrevMonth': 'Vorheriger Monat',
+    'budget.cashflowNextMonth': 'Nächster Monat',
+    'budget.cashflowZoomAria': 'Zoom',
+    'budget.cashflowZoomIn': 'Vergrößern',
+    'budget.cashflowZoomOut': 'Verkleinern',
+    'budget.cashflowFocusMonth': 'Cashflow: {month}',
     'budget.defaultAmountLabel': 'Betrag',
     'budget.newPositionPlaceholder': 'Neuer Positionsname',
     'budget.categoryPlaceholder': 'Kategorie (bestehend oder neu)',
@@ -238,6 +260,10 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     'budget.action': 'Aktion',
     'budget.delete': 'Löschen',
     'budget.recurrence': 'Budgetregel',
+    'budget.distributionMode': 'Verteilung',
+    'budget.distributionModeExactDay': 'Am festen Tag',
+    'budget.distributionModeEven': 'Über Monat verteilen',
+    'budget.dayOfMonth': 'Tag im Monat',
     'budget.validFrom': 'Von',
     'budget.validTo': 'Bis',
     'budget.validOn': 'Am',
@@ -325,6 +351,7 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     'budget.everyNMonths': 'Alle n Monate',
     'budget.recurrenceIntervalMonths': 'Intervall (Monate)',
     'budget.validation.recurrenceInterval': 'Ganze Zahl zwischen 2 und 24.',
+    'budget.validation.dayOfMonth': 'Ganze Zahl zwischen 1 und 31.',
 
     'dashboard.cashflowTitle': 'Einnahmen vs. Ausgaben (Ist)',
     'dashboard.cashflowIncome': 'Einnahmen (Ist)',
@@ -632,6 +659,28 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     'budget.deselectRow': 'Deselect row',
     'budget.monthlySum': 'Monthly sum',
     'budget.runningCashflow': 'Running cashflow',
+    'budget.liquidityTitle': 'Cashflow',
+    'budget.liquidityHint': 'Daily curve from planned budget amounts across the whole year.',
+    'budget.liquidityExpand': 'Show',
+    'budget.liquidityCollapse': 'Collapse',
+    'budget.liquidityZoomLabel': 'View',
+    'budget.liquidityZoomCurrentMonth': 'Current month',
+    'budget.liquidityZoomYear': 'Whole year',
+    'budget.liquidityOpeningBalance': 'Year start (budget base)',
+    'budget.liquidityEndingBalance': 'Ending balance',
+    'budget.liquidityRunningBalance': 'Balance',
+    'budget.liquidityDailyNet': 'Daily flow',
+    'budget.liquidityLoading': 'Loading liquidity data...',
+    'budget.liquidityLoadFailed': 'Could not load liquidity data.',
+    'budget.liquidityNoData': 'No daily data available.',
+    'budget.liquidityNoDataHint': 'Enter planned amounts in the table above — the curve updates as you type.',
+    'budget.liquidityTodayLabel': 'Today',
+    'budget.cashflowPrevMonth': 'Previous month',
+    'budget.cashflowNextMonth': 'Next month',
+    'budget.cashflowZoomAria': 'Zoom',
+    'budget.cashflowZoomIn': 'Zoom in',
+    'budget.cashflowZoomOut': 'Zoom out',
+    'budget.cashflowFocusMonth': 'Cashflow: {month}',
     'budget.defaultAmountLabel': 'Amount',
     'budget.newPositionPlaceholder': 'New position name',
     'budget.categoryPlaceholder': 'Category (existing or new)',
@@ -649,6 +698,10 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     'budget.action': 'Action',
     'budget.delete': 'Delete',
     'budget.recurrence': 'Budget rule',
+    'budget.distributionMode': 'Distribution',
+    'budget.distributionModeExactDay': 'Exact day of month',
+    'budget.distributionModeEven': 'Evenly across month',
+    'budget.dayOfMonth': 'Day of month',
     'budget.validFrom': 'From',
     'budget.validTo': 'To',
     'budget.validOn': 'On',
@@ -735,6 +788,7 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     'budget.everyNMonths': 'Every n months',
     'budget.recurrenceIntervalMonths': 'Interval (months)',
     'budget.validation.recurrenceInterval': 'Use a whole number between 2 and 24.',
+    'budget.validation.dayOfMonth': 'Use a whole number between 1 and 31.',
 
     'dashboard.cashflowTitle': 'Income vs spending (actual)',
     'dashboard.cashflowIncome': 'Income (actual)',
@@ -887,12 +941,21 @@ export class I18nService {
     const abs = Math.abs(value);
     const sign = value > 0 ? '+' : '-';
     if (abs >= 1_000_000) {
-      return `${sign}${(abs / 1_000_000).toFixed(2)}M`;
+      return `${sign}${this.formatCompactMagnitude(abs / 1_000_000)}M`;
     }
     if (abs >= 1000) {
-      return `${sign}${(abs / 1000).toFixed(2)}k`;
+      return `${sign}${this.formatCompactMagnitude(abs / 1000)}k`;
     }
     return this.formatSignedAmount(value);
+  }
+
+  /** Scaled value for compact chart axis labels (`1,50k`), locale-aware decimal separator. */
+  private formatCompactMagnitude(value: number): string {
+    return new Intl.NumberFormat(this.numberLocale(), {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: false
+    }).format(value);
   }
 
   /** Text color from signed amount (read-only cells, totals, chips). */

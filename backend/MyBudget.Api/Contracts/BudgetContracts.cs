@@ -45,7 +45,9 @@ public record BudgetRecurrenceRuleDto(
     DateOnly StartDate,
     DateOnly? EndDate,
     decimal DefaultAmount,
-    int? IntervalMonths);
+    int? IntervalMonths,
+    BudgetDistributionMode DistributionMode,
+    int? DayOfMonth);
 
 public record BudgetPositionDto(
     Guid Id,
@@ -78,6 +80,11 @@ public sealed record CreatePositionRequest
 
     [Range(2, 24)]
     public int? IntervalMonths { get; init; }
+
+    public BudgetDistributionMode DistributionMode { get; init; } = BudgetDistributionMode.ExactDayOfMonth;
+
+    [Range(1, 31)]
+    public int? DayOfMonth { get; init; }
 }
 
 public sealed record UpdatePositionRequest
@@ -97,6 +104,11 @@ public sealed record UpdatePositionRequest
 
     [Range(2, 24)]
     public int? IntervalMonths { get; init; }
+
+    public BudgetDistributionMode DistributionMode { get; init; } = BudgetDistributionMode.ExactDayOfMonth;
+
+    [Range(1, 31)]
+    public int? DayOfMonth { get; init; }
 
     public BudgetPositionPlannedApplyScope? PlannedAmountsScope { get; init; }
     public DateOnly? PlannedAmountsApplyFrom { get; init; }
@@ -186,6 +198,9 @@ public record PositionPlanActualRowDto(
     decimal YearPlanned,
     decimal YearActual);
 public record PlanActualByPositionReportDto(IReadOnlyList<PositionPlanActualRowDto> Positions);
+
+public record DailyLiquidityPointDto(DateOnly Date, decimal DailyNet, decimal RunningBalance);
+public record DailyLiquidityReportDto(decimal OpeningBalance, IReadOnlyList<DailyLiquidityPointDto> Days);
 
 public record BaselineMemberDto(Guid UserId, string? DisplayName, BaselineAccessRole Role, DateTimeOffset CreatedAt);
 public record BaselineInvitationDto(

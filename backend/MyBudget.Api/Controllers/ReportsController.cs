@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MyBudget.Api.Contracts;
+using MyBudget.Api.Domain;
+using MyBudget.Api.Domain.Enums;
 using MyBudget.Api.Infrastructure;
 
 namespace MyBudget.Api.Controllers;
@@ -10,7 +12,8 @@ namespace MyBudget.Api.Controllers;
 public class ReportsController(
     BudgetDbContext dbContext,
     IUserContext userContext,
-    IBaselineAccessService baselineAccessService) : ControllerBase
+    IBaselineAccessService baselineAccessService,
+    IPlanningMaterializationService planningMaterializationService) : ControllerBase
 {
     private const int MaxMonthlySummaryMonths = 120;
     private const int MaxYearlySummaryYears = 25;
@@ -378,6 +381,105 @@ public class ReportsController(
         }
 
         return Ok(new PlanActualByPositionReportDto(result));
+    }
+
+    [HttpGet("daily-liquidity")]
+    public async Task<ActionResult<DailyLiquidityReportDto>> DailyLiquidity(
+        [FromQuery] Guid baselineId,
+        [FromQuery] int year,
+        CancellationToken cancellationToken)
+    {
+        if (year <= 0)
+        {
+            year = DateTime.UtcNow.Year;
+        }
+
+        var accessFailure = await EnsureReadableBaselineAsync(baselineId, cancellationToken);
+        if (accessFailure is not null)
+        {
+            return accessFailure;
+        }
+
+        await planningMaterializationService.MaterializeYearAsync(baselineId, year, cancellationToken);
+
+        // Liquidity baseline is budget-driven only (no account balance seed).
+        const decimal openingBalance = 0m;
+
+        var positions = await dbContext.Positions
+            .AsNoTracking()
+            .Where(p => p.BaselineId == baselineId)
+            .Select(p => new
+            {
+                p.Cadence,
+                p.StartDate,
+                p.EndDate,
+                p.DefaultAmount,
+                p.RecurrenceRuleJson,
+                IsIncome = p.Category.IsIncome,
+                Planned = p.PlannedAmounts
+                    .Where(pa => pa.Year == year)
+                    .Select(pa => new { pa.Month, pa.Amount })
+                    .ToList()
+            })
+            .ToListAsync(cancellationToken);
+
+        var yearStart = new DateOnly(year, 1, 1);
+        var yearEnd = new DateOnly(year, 12, 31);
+        var dailyNet = new Dictionary<DateOnly, decimal>();
+
+        foreach (var position in positions)
+        {
+            var rule = BudgetRecurrenceRule.Resolve(
+                position.Cadence,
+                position.StartDate,
+                position.EndDate,
+                position.DefaultAmount,
+                position.RecurrenceRuleJson);
+
+            foreach (var planned in position.Planned)
+            {
+                var signedAmount = position.IsIncome ? planned.Amount : -planned.Amount;
+                if (signedAmount == 0m)
+                {
+                    continue;
+                }
+
+                if (rule.DistributionMode == BudgetDistributionMode.EvenlyDistributed)
+                {
+                    DistributeEvenly(dailyNet, year, planned.Month, signedAmount);
+                    continue;
+                }
+
+                var day = rule.ScheduledDayOfMonth(year, planned.Month);
+                var date = new DateOnly(year, planned.Month, day);
+                dailyNet[date] = dailyNet.GetValueOrDefault(date) + signedAmount;
+            }
+        }
+
+        var rows = new List<DailyLiquidityPointDto>(DateTime.IsLeapYear(year) ? 366 : 365);
+        var runningBalance = openingBalance;
+        for (var date = yearStart; date <= yearEnd; date = date.AddDays(1))
+        {
+            var delta = dailyNet.GetValueOrDefault(date, 0m);
+            runningBalance += delta;
+            rows.Add(new DailyLiquidityPointDto(date, delta, runningBalance));
+        }
+
+        return Ok(new DailyLiquidityReportDto(openingBalance, rows));
+    }
+
+    private static void DistributeEvenly(Dictionary<DateOnly, decimal> dailyNet, int year, int month, decimal signedAmount)
+    {
+        var daysInMonth = DateTime.DaysInMonth(year, month);
+        var perDay = decimal.Round(signedAmount / daysInMonth, 2, MidpointRounding.AwayFromZero);
+        for (var day = 1; day <= daysInMonth; day++)
+        {
+            var date = new DateOnly(year, month, day);
+            var amount = day == daysInMonth
+                ? signedAmount - (perDay * (daysInMonth - 1))
+                : perDay;
+            dailyNet[date] = dailyNet.GetValueOrDefault(date) + amount;
+        }
     }
 
     private async Task<ActionResult?> EnsureReadableBaselineAsync(Guid baselineId, CancellationToken cancellationToken)

@@ -1,4 +1,5 @@
 export type BudgetCadence = 'None' | 'Monthly' | 'Yearly' | 'EveryNMonths';
+export type BudgetDistributionMode = 'ExactDayOfMonth' | 'EvenlyDistributed';
 export type BaselineAccessKind = 'None' | 'Viewer' | 'Editor' | 'Owner';
 export type BaselineMemberRole = 'Viewer' | 'Editor';
 
@@ -42,6 +43,8 @@ export interface BudgetRecurrenceRule {
   defaultAmount: number;
   /** Months between occurrences when `cadence` is `EveryNMonths` (server: 2–24). */
   intervalMonths?: number | null;
+  distributionMode: BudgetDistributionMode;
+  dayOfMonth?: number | null;
 }
 
 export interface Account {
@@ -173,4 +176,15 @@ export interface PositionPlanActualRow {
 
 export interface PlanActualByPositionReport {
   positions: PositionPlanActualRow[];
+}
+
+export interface DailyLiquidityPoint {
+  date: string;
+  dailyNet: number;
+  runningBalance: number;
+}
+
+export interface DailyLiquidityReport {
+  openingBalance: number;
+  days: DailyLiquidityPoint[];
 }

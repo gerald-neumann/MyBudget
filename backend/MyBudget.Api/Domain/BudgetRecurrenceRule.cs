@@ -12,7 +12,9 @@ public sealed record BudgetRecurrenceRule(
     DateOnly StartDate,
     DateOnly? EndDate,
     decimal DefaultAmount,
-    int? IntervalMonths = null)
+    int? IntervalMonths = null,
+    BudgetDistributionMode DistributionMode = BudgetDistributionMode.ExactDayOfMonth,
+    int? DayOfMonth = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -44,16 +46,32 @@ public sealed record BudgetRecurrenceRule(
             }
         }
 
-        return new BudgetRecurrenceRule(cadence, startDate, endDate, defaultAmount, null);
+        var scheduleDay = NormalizeDayOfMonth(BudgetDistributionMode.ExactDayOfMonth, startDate.Day);
+        return new BudgetRecurrenceRule(
+            cadence,
+            startDate,
+            endDate,
+            defaultAmount,
+            null,
+            BudgetDistributionMode.ExactDayOfMonth,
+            scheduleDay);
     }
 
     /// <summary>Serializes a resolved rule (preferred when copying or persisting after <see cref="Resolve"/>).</summary>
     public static string ToJson(BudgetRecurrenceRule rule) => JsonSerializer.Serialize(rule, JsonOptions);
 
-    public static string ToJson(BudgetCadence cadence, DateOnly startDate, DateOnly? endDate, decimal defaultAmount, int? intervalMonths = null)
+    public static string ToJson(
+        BudgetCadence cadence,
+        DateOnly startDate,
+        DateOnly? endDate,
+        decimal defaultAmount,
+        int? intervalMonths = null,
+        BudgetDistributionMode distributionMode = BudgetDistributionMode.ExactDayOfMonth,
+        int? dayOfMonth = null)
     {
         var interval = cadence == BudgetCadence.EveryNMonths ? intervalMonths : null;
-        return ToJson(new BudgetRecurrenceRule(cadence, startDate, endDate, defaultAmount, interval));
+        var scheduleDay = NormalizeDayOfMonth(distributionMode, dayOfMonth ?? startDate.Day);
+        return ToJson(new BudgetRecurrenceRule(cadence, startDate, endDate, defaultAmount, interval, distributionMode, scheduleDay));
     }
 
     public static IEnumerable<int> GetExpectedMonths(BudgetRecurrenceRule rule, int year)
@@ -93,7 +111,27 @@ public sealed record BudgetRecurrenceRule(
         // Prefer authoritative columns for identity fields; keep interval from JSON when cadence matches.
         var cadence = columnCadence;
         var interval = cadence == BudgetCadence.EveryNMonths ? parsed.IntervalMonths : null;
-        return new BudgetRecurrenceRule(cadence, columnStart, columnEnd, columnAmount, interval);
+        var distributionMode = parsed.DistributionMode;
+        var dayOfMonth = NormalizeDayOfMonth(distributionMode, parsed.DayOfMonth ?? columnStart.Day);
+        return new BudgetRecurrenceRule(cadence, columnStart, columnEnd, columnAmount, interval, distributionMode, dayOfMonth);
+    }
+
+    public int ScheduledDayOfMonth(int year, int month)
+    {
+        var configured = NormalizeDayOfMonth(DistributionMode, DayOfMonth ?? StartDate.Day) ?? 1;
+        var lastDay = DateTime.DaysInMonth(year, month);
+        return Math.Clamp(configured, 1, lastDay);
+    }
+
+    private static int? NormalizeDayOfMonth(BudgetDistributionMode distributionMode, int? dayOfMonth)
+    {
+        if (distributionMode == BudgetDistributionMode.EvenlyDistributed)
+        {
+            return null;
+        }
+
+        var day = dayOfMonth ?? 1;
+        return Math.Clamp(day, 1, 31);
     }
 
     private static IEnumerable<int> GetEveryNMonthsInYear(DateOnly anchorStart, int firstMonth, int lastMonth, int year, int intervalMonths)

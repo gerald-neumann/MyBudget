@@ -33,7 +33,130 @@
   right: 0;
 }
 
-/* Wide track: align-items flex-start via Tailwind on .app-budget-scroll — avoids fixed-layout columns shrinking. */
+.budget-page-body {
+  container-type: size;
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.budget-cashflow-card {
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.budget-cashflow-chart {
+  position: relative;
+  flex: 0 0 auto;
+  height: 9.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.budget-cashflow-chart canvas {
+  display: block;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.budget-cashflow-overlays {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.budget-cashflow-month-badge {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background-color: rgb(255 255 255 / 0.92);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #5b21b6;
+  box-shadow: 0 1px 3px rgb(91 33 182 / 0.12);
+}
+
+.budget-cashflow-overlay-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(221 214 254);
+  border-radius: 9999px;
+  background-color: rgb(255 255 255 / 0.94);
+  color: #5b21b6;
+  box-shadow: 0 1px 4px rgb(91 33 182 / 0.14);
+}
+
+.budget-cashflow-overlay-btn:hover:not(:disabled) {
+  background-color: rgb(245 243 255);
+}
+
+.budget-cashflow-overlay-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.budget-cashflow-overlay-btn--prev,
+.budget-cashflow-overlay-btn--next {
+  position: absolute;
+  top: 50%;
+  width: 1.75rem;
+  height: 1.75rem;
+  transform: translateY(-50%);
+}
+
+.budget-cashflow-overlay-btn--prev {
+  left: 0.25rem;
+}
+
+.budget-cashflow-overlay-btn--next {
+  right: 0.25rem;
+}
+
+.budget-cashflow-overlay-zoom {
+  pointer-events: auto;
+  position: absolute;
+  top: 0.5rem;
+  right: 0.35rem;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.budget-cashflow-overlay-btn--zoom {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* Wide track: align-items flex-start on .app-budget-h-track — avoids fixed-layout columns shrinking. */
+
+.app-budget-h-track {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.app-budget-track-inner {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: 100%;
+  min-width: 0;
+  width: max(100%, var(--budget-table-min-width));
+  max-width: none;
+}
 
 .budget-grid-inner {
   display: flex;
@@ -42,8 +165,7 @@
   /* Fill the scrollport when there are few rows so a flex spacer can push the summary band to the bottom (parity with spendings). */
   min-height: 100%;
   box-sizing: border-box;
-  width: max(100%, var(--budget-table-min-width));
-  max-width: none;
+  width: 100%;
 }
 
 /* Inert flex grow between the data grid and the summary so totals sit at the bottom of the viewport when content is short. */
@@ -63,6 +185,26 @@
 
 .budget-table-month-cell {
   min-width: var(--budget-col-month-min);
+}
+
+.budget-table-month-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.budget-table-month-header:hover {
+  background-color: rgb(237 233 254);
+}
+
+.budget-table-month-header:focus-visible {
+  outline: 2px solid rgb(167 139 250);
+  outline-offset: -2px;
+}
+
+.budget-table-month-header--active {
+  background-color: rgb(221 214 254) !important;
+  color: #4c1d95;
+  box-shadow: inset 0 -2px 0 #7c3aed;
 }
 
 .budget-col-position {
@@ -102,7 +244,7 @@
   box-shadow: -2px 0 6px -3px rgb(91 33 182 / 0.14);
 }
 
-/* Action column: right edge of the scrollport. */
+/* Action column: right edge of the horizontal scrollport (.app-budget-h-track). */
 .budget-col-sticky-action {
   position: sticky;
   right: 0;

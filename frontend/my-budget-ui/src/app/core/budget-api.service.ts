@@ -14,6 +14,7 @@ import {
   BudgetPosition,
   Category,
   CategorySummaryPoint,
+  DailyLiquidityReport,
   MonthlyCashflowReport,
   MonthlySummaryPoint,
   PlanActualByPositionReport,
@@ -141,6 +142,8 @@ export class BudgetApiService {
       defaultAmount: number;
       sortOrder: number;
       intervalMonths?: number;
+      distributionMode?: 'ExactDayOfMonth' | 'EvenlyDistributed';
+      dayOfMonth?: number | null;
     }
   ): Observable<BudgetPosition> {
     return this.http.post<BudgetPosition>(`${this.baseUrl}/baselines/${baselineId}/positions`, payload);
@@ -158,6 +161,8 @@ export class BudgetApiService {
       defaultAmount: number;
       sortOrder: number;
       intervalMonths?: number;
+      distributionMode?: 'ExactDayOfMonth' | 'EvenlyDistributed';
+      dayOfMonth?: number | null;
       /** When set, matching planned months are reset to the new template amount and overrides cleared. */
       plannedAmountsScope?: 'All' | 'DateRange';
       plannedAmountsApplyFrom?: string;
@@ -302,6 +307,12 @@ export class BudgetApiService {
 
   getPlanActualByPosition(baselineId: string, year: number): Observable<PlanActualByPositionReport> {
     return this.http.get<PlanActualByPositionReport>(`${this.baseUrl}/reports/plan-actual-by-position`, {
+      params: new HttpParams().set('baselineId', baselineId).set('year', year)
+    });
+  }
+
+  getDailyLiquidity(baselineId: string, year: number): Observable<DailyLiquidityReport> {
+    return this.http.get<DailyLiquidityReport>(`${this.baseUrl}/reports/daily-liquidity`, {
       params: new HttpParams().set('baselineId', baselineId).set('year', year)
     });
   }
