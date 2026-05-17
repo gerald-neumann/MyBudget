@@ -118,6 +118,11 @@ public class PositionsController(
         {
             return BadRequest("Category not found or does not belong to this baseline owner.");
         }
+        var trimmedName = request.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedName))
+        {
+            return BadRequest("Name is required.");
+        }
 
         var intervalMonths = NormalizeIntervalMonths(request.Cadence, request.IntervalMonths);
 
@@ -126,7 +131,7 @@ public class PositionsController(
             Id = Guid.NewGuid(),
             BaselineId = baselineId,
             CategoryId = request.CategoryId,
-            Name = request.Name.Trim(),
+            Name = trimmedName!,
             Cadence = request.Cadence,
             StartDate = request.StartDate,
             EndDate = request.EndDate,
@@ -181,6 +186,11 @@ public class PositionsController(
         {
             return BadRequest("Category not found or does not belong to this baseline owner.");
         }
+        var trimmedName = request.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedName))
+        {
+            return BadRequest("Name is required.");
+        }
 
         var position = await dbContext.Positions
             .Include(x => x.PlannedAmounts)
@@ -193,7 +203,7 @@ public class PositionsController(
         var intervalMonths = NormalizeIntervalMonths(request.Cadence, request.IntervalMonths);
 
         position.CategoryId = request.CategoryId;
-        position.Name = request.Name.Trim();
+        position.Name = trimmedName!;
         position.Cadence = request.Cadence;
         position.StartDate = request.StartDate;
         position.EndDate = request.EndDate;

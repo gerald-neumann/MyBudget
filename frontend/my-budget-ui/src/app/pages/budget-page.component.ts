@@ -70,6 +70,8 @@ export class BudgetPageComponent {
   savingCells = false;
   message = '';
   messageType: 'success' | 'error' = 'success';
+  private messageClearTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly messageAutoClearMs = 4500;
 
   /** Server / flow errors while the new-position sheet is open (shown inside the dialog, not behind it). */
   newPositionSheetBanner = '';
@@ -126,7 +128,11 @@ export class BudgetPageComponent {
   /** Serialized new-position form right after the sheet opens (dirty check before cancel). */
   private newPositionFormBaseline = '';
 
-  private readonly deletingPositionIds = new Set<string>();
+  /**
+   * Signal-backed set so async delete completion reliably refreshes button state
+   * in zoneless/signal-driven change detection.
+   */
+  private readonly deletingPositionIds = signal<ReadonlySet<string>>(new Set<string>());
 
   categorySuggestOpen: { kind: 'new'; input: HTMLInputElement } | { kind: 'edit'; input: HTMLInputElement } | null = null;
   categorySuggestRect: { top: number; left: number; width: number } | null = null;
@@ -180,6 +186,7 @@ export class BudgetPageComponent {
           .subscribe({
             next: () => {
               this.savingCells = false;
+              this.setMessage('msg.savePlannedSuccess', 'success');
             },
             error: () => {
               this.savingCells = false;
@@ -242,6 +249,11 @@ export class BudgetPageComponent {
     const onBudgetPointerDownCapture = (ev: Event) => this.onDocumentPointerDownBudgetInlineCancel(ev);
     this.documentRef.addEventListener('pointerdown', onBudgetPointerDownCapture, true);
     this.destroyRef.onDestroy(() => this.documentRef.removeEventListener('pointerdown', onBudgetPointerDownCapture, true));
+    this.destroyRef.onDestroy(() => {
+      if (this.messageClearTimer) {
+        clearTimeout(this.messageClearTimer);
+      }
+    });
   }
 
   selectedBaselineAccess(): 'None' | 'Viewer' | 'Editor' | 'Owner' {
@@ -433,7 +445,7 @@ export class BudgetPageComponent {
       return;
     }
     const position = this.positions.find((p) => p.id === pid);
-    if (!position || position.cadence !== 'None') {
+    if (!position) {
       return;
     }
     const nameTd = active.closest('td');
@@ -1232,7 +1244,7 @@ export class BudgetPageComponent {
 
   editPositionNameInvalid(): boolean {
     const d = this.editPositionDraft;
-    return !d || (this.hasBudgetRule(d.cadence) && !d.name.trim());
+    return !d || !d.name.trim();
   }
 
   editPositionCategoryInvalid(): boolean {
@@ -1396,7 +1408,7 @@ export class BudgetPageComponent {
             }
           }
 
-          const nameForSave = noRule ? (position.name ?? '').trim() : draft.name.trim();
+          const nameForSave = draft.name.trim();
           return this.api.updatePosition(
             baselineId,
             position.id,
@@ -1416,6 +1428,7 @@ export class BudgetPageComponent {
         next: () => {
           this.amountEdit = null;
           this.forceCloseEditPositionSheet();
+          this.setMessage('msg.updatePositionSuccess', 'success');
           this.budgetDataReload.update((n) => n + 1);
         },
         error: () => this.setMessage('msg.updatePositionFailed', 'error')
@@ -1513,9 +1526,10 @@ export class BudgetPageComponent {
         )
       )
       .subscribe({
-        next: () => {
+        next: (created) => {
           this.resetNewPositionForm();
           this.closeNewPositionSheet();
+          this.setMessage('msg.createPositionSuccess', 'success');
           this.budgetDataReload.update((n) => n + 1);
         },
         error: () => this.setMessage('msg.createPositionFailed', 'error')
@@ -1539,7 +1553,10 @@ export class BudgetPageComponent {
       .updatePosition(baselineId, position.id, this.patchPayload(position, { name: trimmed }))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (updated) => this.applyPositionUpdate(position, updated),
+        next: (updated) => {
+          this.applyPositionUpdate(position, updated);
+          this.setMessage('msg.updatePositionSuccess', 'success');
+        },
         error: () => this.setMessage('msg.updatePositionFailed', 'error')
       });
   }
@@ -1568,7 +1585,10 @@ export class BudgetPageComponent {
       .reapplyPositionRecurrenceTemplate(baselineId, position.id, year)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => this.budgetDataReload.update((n) => n + 1),
+        next: () => {
+          this.setMessage('msg.reapplyRecurrenceSuccess', 'success');
+          this.budgetDataReload.update((n) => n + 1);
+        },
         error: () => this.setMessage('msg.reapplyRecurrenceFailed', 'error')
       });
   }
@@ -1592,7 +1612,7 @@ export class BudgetPageComponent {
   }
 
   isPositionDeleteInFlight(positionId: string): boolean {
-    return this.deletingPositionIds.has(positionId);
+    return this.deletingPositionIds().has(positionId);
   }
 
   deleteEditingPositionFromModal(): void {
@@ -1611,22 +1631,25 @@ export class BudgetPageComponent {
     if (!this.canManageSelectedBaseline()) {
       return;
     }
-    if (this.deletingPositionIds.has(position.id)) {
+    if (this.isPositionDeleteInFlight(position.id)) {
       return;
     }
 
-    this.deletingPositionIds.add(position.id);
+    this.setPositionDeleteInFlight(position.id, true);
 
     this.api
       .deletePosition(position.baselineId, position.id)
       .pipe(
         takeUntilDestroyed(this.destroyRef),
         finalize(() => {
-          this.deletingPositionIds.delete(position.id);
+          this.setPositionDeleteInFlight(position.id, false);
         })
       )
       .subscribe({
-        next: () => this.removePositionFromView(position.id),
+        next: () => {
+          this.removePositionFromView(position.id);
+          this.setMessage('msg.deletePositionSuccess', 'success');
+        },
         error: (err: unknown) => {
           if (err instanceof HttpErrorResponse && err.status === 404) {
             this.removePositionFromView(position.id);
@@ -1642,6 +1665,18 @@ export class BudgetPageComponent {
     if (this.editPositionDraft?.id === positionId) {
       this.forceCloseEditPositionSheet();
     }
+  }
+
+  private setPositionDeleteInFlight(positionId: string, inFlight: boolean): void {
+    this.deletingPositionIds.update((current) => {
+      const next = new Set(current);
+      if (inFlight) {
+        next.add(positionId);
+      } else {
+        next.delete(positionId);
+      }
+      return next;
+    });
   }
 
   monthLabel(month: number): string {
@@ -1680,10 +1715,13 @@ export class BudgetPageComponent {
   }
 
   private setMessage(message: string, type: 'success' | 'error'): void {
+    if (this.messageClearTimer) {
+      clearTimeout(this.messageClearTimer);
+      this.messageClearTimer = null;
+    }
     if (type === 'success') {
       this.clearOverlayFeedbackMessages();
-      this.message = message;
-      this.messageType = type;
+      this.message = '';
       return;
     }
     if (this.newPositionSheetOpen()) {
@@ -1691,6 +1729,7 @@ export class BudgetPageComponent {
       this.clearOverlayFeedbackMessages();
       this.newPositionSheetBanner = message;
       this.newPositionSheetBannerType = type;
+      this.scheduleErrorMessageAutoClear();
       return;
     }
     if (this.editPositionDraft !== null) {
@@ -1698,11 +1737,21 @@ export class BudgetPageComponent {
       this.newPositionSheetBanner = '';
       this.editPositionSheetBanner = message;
       this.editPositionSheetBannerType = type;
+      this.scheduleErrorMessageAutoClear();
       return;
     }
     this.clearOverlayFeedbackMessages();
     this.message = message;
     this.messageType = type;
+    this.scheduleErrorMessageAutoClear();
+  }
+
+  private scheduleErrorMessageAutoClear(): void {
+    this.messageClearTimer = setTimeout(() => {
+      this.message = '';
+      this.clearOverlayFeedbackMessages();
+      this.messageClearTimer = null;
+    }, this.messageAutoClearMs);
   }
 
   /**

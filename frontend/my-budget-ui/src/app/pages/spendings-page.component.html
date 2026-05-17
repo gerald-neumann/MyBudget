@@ -284,6 +284,7 @@
                 <col class="spendings-col-amount" />
                 <col class="spendings-col-attachment" />
                 <col class="spendings-col-note" />
+                <col class="spendings-col-remaining" />
                 <col class="spendings-col-actions" />
               </colgroup>
               <thead class="bg-violet-50 text-violet-800">
@@ -294,6 +295,7 @@
                   <th class="min-w-0 bg-violet-50 px-2 py-2 text-right">{{ t('budget.amountPlaceholder') }}</th>
                   <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.attachment') }}</th>
                   <th class="min-w-0 bg-violet-50 px-2 py-2 text-left">{{ t('budget.note') }}</th>
+                  <th class="min-w-0 bg-violet-50 px-2 py-2 text-center">{{ t('budget.remainingThisMonth') }}</th>
                   <th
                     class="app-table-actions-cell min-w-0 bg-violet-50 py-2 text-right"
                     [class.max-sm:hidden]="viewport.maxSm() && !newEntryRowActive() && editingEntryId === null"
@@ -371,9 +373,6 @@
                           </span>
                         }
                         <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-violet-800 sm:text-sm">
-                          @if (!hasNewAttachmentFile()) {
-                            <span class="font-medium leading-tight">{{ t('budget.attachmentOptional') }}</span>
-                          }
                           <label
                             class="inline-flex cursor-pointer items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1.5 hover:border-violet-300 hover:bg-violet-50"
                             (click)="$event.stopPropagation()"
@@ -401,6 +400,18 @@
                         class="min-h-9 w-full rounded border border-violet-300 bg-white px-1 py-1 text-xs text-violet-900 sm:text-sm"
                         [placeholder]="t('budget.notePlaceholder')"
                       />
+                    </td>
+                    <td
+                      class="min-w-0 px-1 py-1 text-center tabular-nums sm:px-2 sm:py-2"
+                      [attr.title]="t('budget.remainingThisMonthHint')"
+                    >
+                      @if (remainingThisMonthForPosition(newActual.budgetPositionId) !== null) {
+                        <span [class]="varianceBadgeClass(remainingThisMonthForPosition(newActual.budgetPositionId))">
+                          {{ i18n.formatSignedAmount(remainingThisMonthForPosition(newActual.budgetPositionId) ?? 0) }}
+                        </span>
+                      } @else {
+                        <span class="spendings-variance-empty">—</span>
+                      }
                     </td>
                     <td class="app-table-actions-cell min-w-0 whitespace-nowrap py-1 align-middle text-right sm:py-2">
                       <div class="app-table-row-actions">
@@ -530,7 +541,6 @@
                           </div>
                         } @else {
                           <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-violet-800 sm:text-sm">
-                            <span class="font-medium leading-tight">{{ t('budget.attachmentOptional') }}</span>
                             <label
                               class="inline-flex cursor-pointer items-center gap-1.5 rounded border border-violet-200 bg-white px-2 py-1.5 hover:border-violet-300 hover:bg-violet-50"
                               (click)="$event.stopPropagation()"
@@ -560,6 +570,18 @@
                         [placeholder]="t('budget.notePlaceholder')"
                       />
                     </td>
+                    <td
+                      class="min-w-0 px-1 py-1 text-center tabular-nums sm:px-2 sm:py-2"
+                      [attr.title]="t('budget.remainingThisMonthHint')"
+                    >
+                      @if (remainingThisMonthForPosition(editDraft.budgetPositionId) !== null) {
+                        <span [class]="varianceBadgeClass(remainingThisMonthForPosition(editDraft.budgetPositionId))">
+                          {{ i18n.formatSignedAmount(remainingThisMonthForPosition(editDraft.budgetPositionId) ?? 0) }}
+                        </span>
+                      } @else {
+                        <span class="spendings-variance-empty">—</span>
+                      }
+                    </td>
                     <td class="app-table-actions-cell min-w-0 whitespace-nowrap py-1 align-middle text-right sm:py-2">
                       <div class="app-table-row-actions">
                         <button
@@ -586,7 +608,7 @@
                     } @else {
                       <td class="min-w-0 px-2 py-2 tabular-nums">{{ entry.bookedOn | date: 'yyyy-MM-dd' }}</td>
                       <td class="min-w-0 px-2 py-2">
-                        <span class="block truncate" [title]="entryPositionLabel(entry)">{{ entryPositionLabel(entry) }}</span>
+                        <span class="block min-w-0 truncate" [title]="entryPositionLabel(entry)">{{ entryPositionLabel(entry) }}</span>
                       </td>
                       <td class="min-w-0 px-2 py-2">
                         <span class="block truncate" [title]="entryAccountLabel(entry)">{{ entryAccountLabel(entry) }}</span>
@@ -615,6 +637,18 @@
                       </td>
                       <td class="min-w-0 break-words px-2 py-2">
                         {{ entry.note ? i18n.translateSampleToken(entry.note) : '-' }}
+                      </td>
+                      <td
+                        class="min-w-0 px-2 py-2 text-center tabular-nums"
+                        [attr.title]="t('budget.remainingThisMonthHint')"
+                      >
+                        @if (remainingThisMonthForEntry(entry) !== null) {
+                          <span [class]="varianceBadgeClass(remainingThisMonthForEntry(entry))">
+                            {{ i18n.formatSignedAmount(remainingThisMonthForEntry(entry) ?? 0) }}
+                          </span>
+                        } @else {
+                          <span class="spendings-variance-empty">—</span>
+                        }
                       </td>
                       <td class="app-table-actions-cell min-w-0 whitespace-nowrap py-2 text-right">
                         @if (canManageSpendings() && !viewport.maxSm()) {
@@ -647,7 +681,7 @@
                 }
                 @if (actualEntries.length === 0 && !loadingActuals() && !newEntryRowActive()) {
                   <tr>
-                    <td colspan="7" class="border-t border-violet-100 px-4 py-8 text-center text-sm text-violet-600">
+                    <td colspan="8" class="border-t border-violet-100 px-4 py-8 text-center text-sm text-violet-600">
                       {{ t('budget.spendingsEmpty') }}
                     </td>
                   </tr>
@@ -679,6 +713,7 @@
               <col class="spendings-col-amount" />
               <col class="spendings-col-attachment" />
               <col class="spendings-col-note" />
+              <col class="spendings-col-remaining" />
               <col class="spendings-col-actions" />
             </colgroup>
             <tbody>
@@ -692,7 +727,7 @@
                 >
                   {{ i18n.formatSignedAmount(loadedActualsDisplaySum()) }}
                 </td>
-                <td class="min-w-0 bg-violet-100" colspan="3"></td>
+                <td class="min-w-0 bg-violet-100" colspan="4"></td>
               </tr>
             </tbody>
           </table>

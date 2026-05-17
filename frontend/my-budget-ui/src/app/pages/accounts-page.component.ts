@@ -47,6 +47,8 @@ export class AccountsPageComponent {
   readonly savingNewAccount = signal(false);
   message = '';
   messageType: 'success' | 'error' = 'success';
+  private messageClearTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly messageAutoClearMs = 4500;
 
   newAccount = {
     name: '',
@@ -119,6 +121,11 @@ export class AccountsPageComponent {
     const onAccountsPointerDownCapture = (ev: Event) => this.onDocumentPointerDownAccountsCancel(ev);
     this.documentRef.addEventListener('pointerdown', onAccountsPointerDownCapture, true);
     this.destroyRef.onDestroy(() => this.documentRef.removeEventListener('pointerdown', onAccountsPointerDownCapture, true));
+    this.destroyRef.onDestroy(() => {
+      if (this.messageClearTimer) {
+        clearTimeout(this.messageClearTimer);
+      }
+    });
   }
 
   canManageAccounts(): boolean {
@@ -611,7 +618,21 @@ export class AccountsPageComponent {
   }
 
   private setMessage(message: string, type: 'success' | 'error'): void {
+    if (this.messageClearTimer) {
+      clearTimeout(this.messageClearTimer);
+      this.messageClearTimer = null;
+    }
+    if (type === 'success') {
+      this.message = '';
+      return;
+    }
     this.message = message;
     this.messageType = type;
+    this.messageClearTimer = setTimeout(() => {
+      if (this.message === message && this.messageType === type) {
+        this.message = '';
+      }
+      this.messageClearTimer = null;
+    }, this.messageAutoClearMs);
   }
 }

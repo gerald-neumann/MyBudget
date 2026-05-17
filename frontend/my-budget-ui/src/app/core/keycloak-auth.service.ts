@@ -246,6 +246,11 @@ export class KeycloakAuthService {
     }
 
     if (kc.authenticated) {
+      try {
+        await kc.updateToken(70);
+      } catch {
+        authDebugLog('initialize: post-init updateToken failed (refresh token missing or expired)');
+      }
       this.tryLogAccessTokenOnce('after-kc-init');
     }
   }

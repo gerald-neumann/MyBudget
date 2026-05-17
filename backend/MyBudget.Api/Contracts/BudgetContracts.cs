@@ -28,10 +28,16 @@ public record BudgetBaselineDto(
 public record CreateBaselineRequest(
     [property: Required, StringLength(120, MinimumLength = 1)] string Name,
     [property: StringLength(40)] string? Status);
-public record UpdateBaselineRequest(
-    [property: StringLength(120, MinimumLength = 1)] string? Name = null,
-    [property: StringLength(40)] string? Status = null,
-    bool? IsPrimaryBudget = null);
+public sealed record UpdateBaselineRequest
+{
+    [StringLength(120, MinimumLength = 1)]
+    public string? Name { get; init; }
+
+    [StringLength(40)]
+    public string? Status { get; init; }
+
+    public bool? IsPrimaryBudget { get; init; }
+}
 public record ForkBaselineRequest([property: Required, StringLength(120, MinimumLength = 1)] string Name);
 
 public record BudgetRecurrenceRuleDto(
@@ -55,37 +61,56 @@ public record BudgetPositionDto(
     IReadOnlyCollection<PlannedAmountDto> PlannedAmounts,
     BudgetRecurrenceRuleDto RecurrenceRule);
 
-public record CreatePositionRequest(
-    Guid CategoryId,
-    [property: Required, StringLength(160, MinimumLength = 1)] string Name,
-    BudgetCadence Cadence,
-    DateOnly StartDate,
-    DateOnly? EndDate,
-    decimal DefaultAmount,
-    [property: Range(-100_000, 100_000)] int SortOrder,
-    [property: Range(2, 24)] int? IntervalMonths = null);
+public sealed record CreatePositionRequest
+{
+    public Guid CategoryId { get; init; }
 
-public record UpdatePositionRequest(
-    Guid CategoryId,
-    [property: Required, StringLength(160, MinimumLength = 1)] string Name,
-    BudgetCadence Cadence,
-    DateOnly StartDate,
-    DateOnly? EndDate,
-    decimal DefaultAmount,
-    [property: Range(-100_000, 100_000)] int SortOrder,
-    [property: Range(2, 24)] int? IntervalMonths = null,
-    BudgetPositionPlannedApplyScope? PlannedAmountsScope = null,
-    DateOnly? PlannedAmountsApplyFrom = null,
-    DateOnly? PlannedAmountsApplyTo = null);
+    [Required, StringLength(160, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
+
+    public BudgetCadence Cadence { get; init; }
+    public DateOnly StartDate { get; init; }
+    public DateOnly? EndDate { get; init; }
+    public decimal DefaultAmount { get; init; }
+
+    [Range(-100_000, 100_000)]
+    public int SortOrder { get; init; }
+
+    [Range(2, 24)]
+    public int? IntervalMonths { get; init; }
+}
+
+public sealed record UpdatePositionRequest
+{
+    public Guid CategoryId { get; init; }
+
+    [Required, StringLength(160, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
+
+    public BudgetCadence Cadence { get; init; }
+    public DateOnly StartDate { get; init; }
+    public DateOnly? EndDate { get; init; }
+    public decimal DefaultAmount { get; init; }
+
+    [Range(-100_000, 100_000)]
+    public int SortOrder { get; init; }
+
+    [Range(2, 24)]
+    public int? IntervalMonths { get; init; }
+
+    public BudgetPositionPlannedApplyScope? PlannedAmountsScope { get; init; }
+    public DateOnly? PlannedAmountsApplyFrom { get; init; }
+    public DateOnly? PlannedAmountsApplyTo { get; init; }
+}
 
 public record PlannedAmountDto(Guid Id, Guid BudgetPositionId, int Year, int Month, decimal Amount, bool IsOverride);
 public record PlannedAmountUpsertRequest(
     Guid BudgetPositionId,
-    [property: Range(1900, 3000)] int Year,
-    [property: Range(1, 12)] int Month,
+    [Range(1900, 3000)] int Year,
+    [Range(1, 12)] int Month,
     decimal Amount);
 public record BatchUpsertPlannedAmountsRequest(
-    [property: Required, MinLength(1)] IReadOnlyCollection<PlannedAmountUpsertRequest> Items);
+    [Required, MinLength(1)] IReadOnlyCollection<PlannedAmountUpsertRequest> Items);
 
 public record ActualEntryDto(
     Guid Id,
@@ -108,16 +133,16 @@ public record CreateActualEntryRequest(
     Guid AccountId,
     DateOnly BookedOn,
     decimal Amount,
-    [property: StringLength(500)] string? Note,
-    [property: StringLength(200)] string? ExternalRef);
+    [param: StringLength(500)] string? Note,
+    [param: StringLength(200)] string? ExternalRef);
 
 public record UpdateActualEntryRequest(
     Guid BudgetPositionId,
     Guid AccountId,
     DateOnly BookedOn,
     decimal Amount,
-    [property: StringLength(500)] string? Note,
-    [property: StringLength(200)] string? ExternalRef);
+    [param: StringLength(500)] string? Note,
+    [param: StringLength(200)] string? ExternalRef);
 
 public record AccountDto(
     Guid Id,

@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { requireKeycloakAuthGuard } from './core/require-keycloak-auth.guard';
+import { restoreLastShellRouteGuard } from './core/restore-last-shell-route.guard';
 import { BudgetPageComponent } from './pages/budget-page.component';
 import { RestoreLastShellRouteComponent } from './pages/restore-last-shell-route.component';
 import { DashboardPageComponent } from './pages/dashboard-page.component';
@@ -16,7 +17,12 @@ export const routes: Routes = [
     path: '',
     canActivate: [requireKeycloakAuthGuard],
     children: [
-      { path: '', pathMatch: 'full', component: RestoreLastShellRouteComponent },
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [restoreLastShellRouteGuard],
+        component: RestoreLastShellRouteComponent
+      },
       { path: 'dashboard', component: DashboardPageComponent },
       { path: 'budget', component: BudgetPageComponent },
       {

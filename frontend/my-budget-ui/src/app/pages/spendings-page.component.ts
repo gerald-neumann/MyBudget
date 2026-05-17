@@ -100,6 +100,10 @@ export class SpendingsPageComponent {
   private lastShellKey: string | null = null;
   private actualsRequestSeq = 0;
   private actualsPageSub: Subscription | null = null;
+  private remainingHintsRequestSeq = 0;
+  private plannedThisMonthByPosition = new Map<string, number>();
+  private remainingThisMonthByPosition = new Map<string, number>();
+  private remainingThisMonthSnapshotByEntryId = new Map<string, number>();
 
   private readonly filterDebounce$ = new Subject<void>();
 
@@ -124,6 +128,8 @@ export class SpendingsPageComponent {
 
   message = '';
   messageType: 'success' | 'error' = 'success';
+  private messageClearTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly messageAutoClearMs = 4500;
 
   newActual = {
     budgetPositionId: '',
@@ -151,6 +157,9 @@ export class SpendingsPageComponent {
 
     this.destroyRef.onDestroy(() => {
       this.actualsPageSub?.unsubscribe();
+      if (this.messageClearTimer) {
+        clearTimeout(this.messageClearTimer);
+      }
     });
 
     this.filterDebounce$.pipe(debounceTime(400), takeUntilDestroyed(this.destroyRef)).subscribe(() => {
@@ -175,6 +184,9 @@ export class SpendingsPageComponent {
         this.actualsTotalCount = 0;
         this.actualBookingYears = [];
         this.actualsSkip = 0;
+        this.plannedThisMonthByPosition = new Map<string, number>();
+        this.remainingThisMonthByPosition = new Map<string, number>();
+        this.remainingThisMonthSnapshotByEntryId = new Map<string, number>();
         this.clearRowEditState();
         this.newEntryRowActive.set(false);
         return;
@@ -208,6 +220,7 @@ export class SpendingsPageComponent {
           }
 
           this.referenceDataReady.set(true);
+          this.loadCurrentMonthRemainingHints();
           this.applyDrillDownFromRoute();
           this.loadActualsFromStart();
         },
@@ -810,6 +823,30 @@ export class SpendingsPageComponent {
     return this.actualEntries.reduce((sum, e) => sum + this.displayAmountForEntry(e), 0);
   }
 
+  remainingThisMonthForPosition(budgetPositionId: string): number | null {
+    if (!budgetPositionId) {
+      return null;
+    }
+    return this.remainingThisMonthByPosition.get(budgetPositionId) ?? null;
+  }
+
+  remainingThisMonthForEntry(entry: ActualEntry): number | null {
+    return this.remainingThisMonthSnapshotByEntryId.get(entry.id) ?? null;
+  }
+
+  varianceBadgeClass(value: number | null): string {
+    if (value === null) {
+      return 'spendings-variance-badge spendings-variance-badge--zero';
+    }
+    if (value > 0) {
+      return 'spendings-variance-badge spendings-variance-badge--positive';
+    }
+    if (value < 0) {
+      return 'spendings-variance-badge spendings-variance-badge--negative';
+    }
+    return 'spendings-variance-badge spendings-variance-badge--zero';
+  }
+
   /** Display label for committed filter chips (amount tokens get locale + signed number). */
   ledgerSearchChipDisplayLabel(chip: LedgerSearchChip): string {
     if (chip.kind !== 'amount') {
@@ -984,6 +1021,7 @@ export class SpendingsPageComponent {
               this.closeNewEntryRow();
               this.setMessage('msg.addActualSuccess', 'success');
               this.refreshBookingYears();
+              this.loadCurrentMonthRemainingHints();
               this.loadActualsFromStart();
             });
             return;
@@ -993,6 +1031,7 @@ export class SpendingsPageComponent {
           this.closeNewEntryRow();
           this.setMessage('msg.addActualSuccess', 'success');
           this.refreshBookingYears();
+          this.loadCurrentMonthRemainingHints();
           this.loadActualsFromStart();
         },
         error: () => {
@@ -1089,6 +1128,7 @@ export class SpendingsPageComponent {
           }
           this.setMessage('msg.deleteActualSuccess', 'success');
           this.refreshBookingYears();
+          this.loadCurrentMonthRemainingHints();
           this.loadActualsFromStart();
         },
         error: () => {
@@ -1267,6 +1307,7 @@ export class SpendingsPageComponent {
           this.actualEntries = page.items;
           this.actualsTotalCount = page.totalCount;
           this.actualsSkip = page.items.length;
+          this.recomputeLoadedEntryVarianceSnapshots();
           this.clearRowEditState();
           if (page.items.length === 0) {
             if (!this.newActual.budgetPositionId) {
@@ -1334,6 +1375,7 @@ export class SpendingsPageComponent {
           }
           this.actualsTotalCount = page.totalCount;
           this.actualsSkip = this.actualEntries.length;
+          this.recomputeLoadedEntryVarianceSnapshots();
           this.queueTryFillScrollGap();
         },
         error: () => {
@@ -1646,8 +1688,22 @@ export class SpendingsPageComponent {
   }
 
   private setMessage(message: string, type: 'success' | 'error'): void {
+    if (this.messageClearTimer) {
+      clearTimeout(this.messageClearTimer);
+      this.messageClearTimer = null;
+    }
+    if (type === 'success') {
+      this.message = '';
+      return;
+    }
     this.message = message;
     this.messageType = type;
+    this.messageClearTimer = setTimeout(() => {
+      if (this.message === message && this.messageType === type) {
+        this.message = '';
+      }
+      this.messageClearTimer = null;
+    }, this.messageAutoClearMs);
   }
 
   private toDateInput(date: Date): string {
@@ -1773,14 +1829,86 @@ export class SpendingsPageComponent {
       .subscribe({
         next: (updated) => {
           this.applyEntryUpdate(updated);
+          this.loadCurrentMonthRemainingHints();
           this.savingEdit.set(false);
           this.clearRowEditState();
+          this.setMessage('msg.updateActualSuccess', 'success');
         },
         error: () => {
           this.savingEdit.set(false);
           this.setMessage('msg.updateActualFailed', 'error');
         }
       });
+  }
+
+  private loadCurrentMonthRemainingHints(): void {
+    const baselineId = this.state.selectedBaselineId();
+    if (!baselineId) {
+      this.plannedThisMonthByPosition = new Map<string, number>();
+      this.remainingThisMonthByPosition = new Map<string, number>();
+      return;
+    }
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const seq = ++this.remainingHintsRequestSeq;
+    this.api
+      .getPlanActualByPosition(baselineId, currentYear)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (report) => {
+          if (seq !== this.remainingHintsRequestSeq) {
+            return;
+          }
+          const byPosition = new Map<string, number>();
+          const plannedByPosition = new Map<string, number>();
+          for (const row of report.positions) {
+            const month = row.months.find((item) => item.month === currentMonth);
+            if (!month) {
+              continue;
+            }
+            plannedByPosition.set(row.positionId, month.planned);
+            byPosition.set(row.positionId, month.actual - month.planned);
+          }
+          this.plannedThisMonthByPosition = plannedByPosition;
+          this.remainingThisMonthByPosition = byPosition;
+          this.recomputeLoadedEntryVarianceSnapshots();
+        },
+        error: () => {
+          if (seq !== this.remainingHintsRequestSeq) {
+            return;
+          }
+          this.plannedThisMonthByPosition = new Map<string, number>();
+          this.remainingThisMonthByPosition = new Map<string, number>();
+          this.remainingThisMonthSnapshotByEntryId = new Map<string, number>();
+        }
+      });
+  }
+
+  private recomputeLoadedEntryVarianceSnapshots(): void {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const runningByPosition = new Map<string, number>();
+    const snapshots = new Map<string, number>();
+
+    for (let idx = this.actualEntries.length - 1; idx >= 0; idx--) {
+      const entry = this.actualEntries[idx];
+      const year = Number(entry.bookedOn.slice(0, 4));
+      const month = Number(entry.bookedOn.slice(5, 7));
+      if (year !== currentYear || month !== currentMonth) {
+        continue;
+      }
+      const plannedForMonth = this.plannedThisMonthByPosition.get(entry.budgetPositionId);
+      if (plannedForMonth === undefined) {
+        continue;
+      }
+      const nextRunning = (runningByPosition.get(entry.budgetPositionId) ?? 0) + this.displayAmountForEntry(entry);
+      runningByPosition.set(entry.budgetPositionId, nextRunning);
+      snapshots.set(entry.id, nextRunning - plannedForMonth);
+    }
+
+    this.remainingThisMonthSnapshotByEntryId = snapshots;
   }
 
   private toUpdatePayload(d: ActualEditDraft) {
@@ -1904,9 +2032,11 @@ export class SpendingsPageComponent {
           if (this.savingNewEntry()) {
             this.savingNewEntry.set(false);
             this.resetNewActualAfterSuccess();
+            this.loadCurrentMonthRemainingHints();
             this.loadActualsFromStart();
           }
         }
       });
   }
+
 }

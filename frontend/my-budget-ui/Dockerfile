@@ -20,5 +20,7 @@ RUN npm run build --ignore-scripts
 
 FROM nginx:1.27-alpine
 COPY --from=build /src/frontend/my-budget-ui/dist/my-budget-ui/browser /usr/share/nginx/html
-COPY frontend/my-budget-ui/nginx.conf /etc/nginx/conf.d/default.conf
+ENV MYBUDGET_KEYCLOAK_UPSTREAM_ORIGIN=https://auth.flowparity.com
+ENV MYBUDGET_KEYCLOAK_UPSTREAM_BASE_PATH=/keycloak
+COPY frontend/my-budget-ui/nginx.conf /etc/nginx/templates/default.conf.template
 EXPOSE 80

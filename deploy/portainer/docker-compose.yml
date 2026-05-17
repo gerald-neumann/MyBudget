@@ -80,6 +80,10 @@ services:
       - "${MYBUDGET_EDGE_PUBLISH:-127.0.0.1:18080:80}"
     volumes:
       - ${MYBUDGET_UI_CONFIG_PATH:-./ui-config.json}:/usr/share/nginx/html/config.json:ro
+    environment:
+      # Optional Keycloak facade upstream for UI nginx.
+      MYBUDGET_KEYCLOAK_UPSTREAM_ORIGIN: "${MYBUDGET_KEYCLOAK_UPSTREAM_ORIGIN:-https://auth.flowparity.com}"
+      MYBUDGET_KEYCLOAK_UPSTREAM_BASE_PATH: "${MYBUDGET_KEYCLOAK_UPSTREAM_BASE_PATH:-/keycloak}"
     depends_on:
       api:
         condition: service_healthy

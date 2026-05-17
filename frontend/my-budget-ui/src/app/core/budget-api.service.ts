@@ -116,6 +116,10 @@ export class BudgetApiService {
     return this.http.patch<BudgetBaseline>(`${this.baseUrl}/baselines/${id}`, body);
   }
 
+  deleteBaseline(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/baselines/${id}`);
+  }
+
   forkBaseline(id: string, payload: { name: string }): Observable<BudgetBaseline> {
     return this.http.post<BudgetBaseline>(`${this.baseUrl}/baselines/${id}/fork`, payload);
   }

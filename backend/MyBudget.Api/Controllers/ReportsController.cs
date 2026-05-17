@@ -292,6 +292,7 @@ public class ReportsController(
         }
 
         var positions = await dbContext.Positions
+            .AsNoTracking()
             .Where(p => p.BaselineId == baselineId)
             .OrderBy(p => p.SortOrder)
             .ThenBy(p => p.Name)
@@ -306,8 +307,15 @@ public class ReportsController(
             })
             .ToListAsync(cancellationToken);
 
+        if (positions.Count == 0)
+        {
+            return Ok(new PlanActualByPositionReportDto(Array.Empty<PositionPlanActualRowDto>()));
+        }
+
+        var positionIds = positions.Select(x => x.Id).ToList();
         var plannedRows = await dbContext.PlannedAmounts
-            .Where(pa => pa.BudgetPosition.BaselineId == baselineId && pa.Year == year)
+            .AsNoTracking()
+            .Where(pa => positionIds.Contains(pa.BudgetPositionId) && pa.Year == year)
             .GroupBy(pa => new { pa.BudgetPositionId, pa.Month })
             .Select(group => new
             {
@@ -317,8 +325,14 @@ public class ReportsController(
             })
             .ToListAsync(cancellationToken);
 
+        var yearFrom = new DateOnly(year, 1, 1);
+        var yearToExclusive = yearFrom.AddYears(1);
         var actualRows = await dbContext.ActualEntries
-            .Where(a => a.BudgetPosition.BaselineId == baselineId && a.BookedOn.Year == year)
+            .AsNoTracking()
+            .Where(a =>
+                positionIds.Contains(a.BudgetPositionId) &&
+                a.BookedOn >= yearFrom &&
+                a.BookedOn < yearToExclusive)
             .GroupBy(a => new { a.BudgetPositionId, Month = a.BookedOn.Month })
             .Select(group => new
             {

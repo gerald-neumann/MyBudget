@@ -37,4 +37,13 @@ describe('LastShellRouteService', () => {
     expect(localStorage.getItem(storageKey)).toBe('budget');
     expect(service.getRestoreSegment()).toBe('budget');
   });
+
+  it('does not overwrite a stored segment for the app root path', () => {
+    localStorage.setItem(storageKey, 'actuals');
+    const service = TestBed.inject(LastShellRouteService);
+    service.persistFromUrl('/');
+    expect(localStorage.getItem(storageKey)).toBe('actuals');
+    service.persistFromUrl('');
+    expect(localStorage.getItem(storageKey)).toBe('actuals');
+  });
 });

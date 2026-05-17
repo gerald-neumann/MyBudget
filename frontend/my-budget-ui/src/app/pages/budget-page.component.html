@@ -177,7 +177,7 @@
                             class="block min-w-0 flex-1 truncate px-0.5 py-0.5 sm:px-1 sm:py-1"
                             [title]="positionDisplayLabel(position)"
                             >{{ positionDisplayLabel(position) }}</span>
-                        } @else if (position.cadence === 'None') {
+                        } @else {
                           <input
                             #posName
                             class="min-w-0 flex-1 rounded border border-transparent px-0.5 py-0.5 text-xs focus:border-violet-300 focus:outline-none sm:px-1 sm:py-1 sm:text-sm"
@@ -189,11 +189,6 @@
                             (keydown.enter)="onBudgetTableFieldEnterConfirm($event)"
                             (keydown.escape)="onBudgetPositionNameEscapeCancel($event, position)"
                           />
-                        } @else {
-                          <span
-                            class="block min-w-0 flex-1 truncate px-0.5 py-0.5 sm:px-1 sm:py-1"
-                            [title]="position.name"
-                            >{{ position.name }}</span>
                         }
                         @if (!isSampleBaseline()) {
                           <button
@@ -600,7 +595,6 @@
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
         <div class="flex flex-col gap-3">
-          @if (hasBudgetRule(editPositionDraft.cadence)) {
           <div>
             <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-name-modal">{{ t('budget.position') }}</label>
             <input
@@ -620,7 +614,6 @@
               <p class="mt-1 text-xs text-rose-600">{{ t('budget.validation.required') }}</p>
             }
           </div>
-          }
           <div class="relative min-w-0">
             <label class="mb-1 block text-xs font-medium text-violet-700" for="edit-pos-category-modal">{{ t('budget.category') }}</label>
             <div class="relative">

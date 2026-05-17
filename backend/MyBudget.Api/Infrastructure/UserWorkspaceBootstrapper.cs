@@ -79,7 +79,7 @@ public class UserWorkspaceBootstrapper(
     }
 
     /// <summary>Personal empty workspace; stays the default (primary) for returning users.</summary>
-    private const string DefaultBaselineName = "My budget";
+    private const string DefaultBaselineName = "My Household";
 
     /// <summary>i18n key stored as name — UI translates (DE/EN).</summary>
     private const string SampleBaselineNameKey = "sample.baseline.exampleHousehold";
@@ -228,6 +228,7 @@ public class UserWorkspaceBootstrapper(
 
         await EnsureLegacyUserHasSampleWorkspaceAsync(userId, cancellationToken);
         await NormalizeLegacySampleBaselineNamesAsync(cancellationToken);
+        await NormalizeLegacyDefaultBaselineNameAsync(userId, cancellationToken);
         await EnsurePetsCategoryAsync(userId, cancellationToken);
         await SyncSampleDemoBaselinesAsync(userId, cancellationToken);
     }
@@ -263,6 +264,15 @@ public class UserWorkspaceBootstrapper(
                 .Where(p => p.Baseline.IsSampleDemo && p.Name == from)
                 .ExecuteUpdateAsync(s => s.SetProperty(p => p.Name, to), cancellationToken);
         }
+    }
+
+    /// <summary>Updates legacy personal default workspace names to the current title.</summary>
+    private async Task NormalizeLegacyDefaultBaselineNameAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        const string legacyDefaultBaselineName = "My budget";
+        await dbContext.Baselines
+            .Where(b => b.UserId == userId && !b.IsSampleDemo && b.Name == legacyDefaultBaselineName)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.Name, DefaultBaselineName), cancellationToken);
     }
 
     private async Task EnsureLegacyUserHasSampleWorkspaceAsync(Guid userId, CancellationToken cancellationToken)

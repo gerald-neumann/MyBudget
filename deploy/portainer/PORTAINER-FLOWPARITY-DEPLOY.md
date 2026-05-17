@@ -5,7 +5,7 @@ Stack layout: **PostgreSQL**, **API** (ASP.NET), and **Angular UI** (`mybudget-u
 - `https://mybudget.flowparity.com/` → UI (static + SPA fallback)
 - `https://mybudget.flowparity.com/api/...` → API (full `/api/...` path is forwarded to Kestrel; the API uses **`PublicPathBase=/api`**)
 
-**Keycloak** is external, with a **path prefix** `/keycloak` on `auth.flowparity.com` (see §6).
+**Keycloak** is external, served on `auth.flowparity.com/keycloak` (shared IdP for multiple apps in this setup).
 
 ## Quick deployment flow (from your PC)
 
@@ -22,7 +22,7 @@ Further detail: **§4** (images and upload flags), **§7** (Portainer API), **§
 | Record | Points to |
 |--------|-----------|
 | `mybudget.flowparity.com` | Docker host (or the machine in front of it) |
-| `auth.flowparity.com` | Your Keycloak / proxy tier (already in place) |
+| `auth.flowparity.com` | Optional Keycloak upstream host (not browser-facing when using `/auth` facade) |
 
 You no longer need a separate `api.*` hostname for this layout.
 
@@ -149,11 +149,14 @@ From a dev PC, **`deploy-my-budget.ps1`** runs the full pipeline by default (**b
 Copy `ui-config.example.json` → **`ui-config.json`** and mount it via `MYBUDGET_UI_CONFIG_PATH`.
 
 - **`apiBaseUrl`**: `https://mybudget.flowparity.com/api` (no trailing slash).
-- **`keycloak.url`**: `https://auth.flowparity.com/keycloak` (no trailing slash) when Keycloak is served under **`KC_HTTP_RELATIVE_PATH=/keycloak`** (or equivalent proxy path).
+- **`keycloak.url`**: `https://auth.flowparity.com/keycloak` (no trailing slash).
 
 ---
 
-## 6. Keycloak at `https://auth.flowparity.com/keycloak`
+## 6. External shared Keycloak (`auth.flowparity.com/keycloak`)
+
+Use the dedicated runbook for exact external adaptations:
+**`deploy/keycloak/OWN-DOMAIN-AUTH-RUNBOOK.md`**
 
 ### 6.0 Deploy the Keycloak stack (Portainer)
 
@@ -172,13 +175,11 @@ Copy `ui-config.example.json` → **`ui-config.json`** and mount it via `MYBUDGE
 
 4. When Keycloak is healthy, finish **§6.2** once in the Admin UI (realm, clients, audience mapper, users).
 
-### 6.1 Keycloak server / reverse proxy
+### 6.1 Keycloak server / reverse proxy (summary)
 
-Your Keycloak container (or outer proxy) should be configured so the **browser-visible** base is `https://auth.flowparity.com/keycloak` (admin, realms, OIDC endpoints under that prefix). The repo’s **`deploy/keycloak/docker-compose.yml`** sets this via:
+Your Keycloak container remains external and shared. Browser login redirects to `auth.flowparity.com/keycloak/...`.
 
-- **`KC_HTTP_RELATIVE_PATH=/keycloak`** (in **`flowparity.env.example`** / your **`deploy/keycloak/.env`**)
-
-The OIDC issuer for realm **`my-budget`** becomes:
+For issuer/token checks, use the issuer from metadata:
 
 `https://auth.flowparity.com/keycloak/realms/my-budget`
 
@@ -189,7 +190,7 @@ Set the API accordingly:
 | `Auth__Authority` | `https://auth.flowparity.com/keycloak/realms/my-budget` |
 | `Auth__RequireHttpsMetadata` | `true` |
 
-Admin UI: open whatever URL your install shows (often `https://auth.flowparity.com/keycloak/admin/` or similar).
+Admin UI may still live on a separate ops URL; that does not need to be browser-facing for end users.
 
 ### 6.2 Realm and clients
 
@@ -211,15 +212,28 @@ Same client and realm setup as a typical Keycloak + SPA deployment, with these U
 | `ui-config.json` `apiBaseUrl` | `https://mybudget.flowparity.com/api` |
 | `ui-config.json` `keycloak.url` | `https://auth.flowparity.com/keycloak` |
 | `ui-config.json` `keycloak.realm` | `my-budget` |
+| Stack env `MYBUDGET_KEYCLOAK_UPSTREAM_ORIGIN` | `https://auth.flowparity.com` (example) |
+| Stack env `MYBUDGET_KEYCLOAK_UPSTREAM_BASE_PATH` | `/keycloak` (example) |
 
 ### 6.4 Reverse proxy, cookies, and time
 
 Use this when browser login fails quickly, cookies vanish, or Keycloak shows **“Restart login cookie not found”** / **`temporarily_unavailable`**.
 
 - **NTP**: keep clock skew small on the Keycloak host, reverse proxy, and client machines.
-- **DNS**: clients should resolve `auth…` consistently (avoid mixing internal short names and public FQDN for the same Keycloak URL).
-- **Reverse proxy → Keycloak**: terminate TLS at the proxy; forward to `http://127.0.0.1:<KEYCLOAK_HTTP_PORT>`. Send **`X-Forwarded-Proto: https`** and **`X-Forwarded-Host`** matching the public hostname. Missing or wrong **`X-Forwarded-Proto`** often breaks cookies and causes instant “authentication expired”.
-- **Keycloak env** (this repo’s compose): **`KC_PROXY_HEADERS: xforwarded`**; **`KEYCLOAK_HOSTNAME`** must match the URL browsers use (scheme + host; path only via **`KC_HTTP_RELATIVE_PATH`** when Keycloak is under a prefix). Recreate the container after env changes.
+- **DNS**: clients should resolve `auth.flowparity.com` consistently.
+- **UI nginx → Keycloak upstream**: if you use the optional `/auth` facade, `MYBUDGET_KEYCLOAK_UPSTREAM_*` must match your Keycloak upstream.
+- **Forwarded headers**: Keycloak must receive coherent forwarded headers for the public browser URL (see runbook).
+- **Keycloak env**: keep `KC_PROXY_HEADERS: xforwarded`; set hostname/path strategy so issuer equals API `Auth__Authority`.
+
+### 6.5 Validation (after rollout)
+
+1. Metadata issuer check: `https://auth.flowparity.com/keycloak/realms/my-budget/.well-known/openid-configuration` returns issuer `https://auth.flowparity.com/keycloak/realms/my-budget`.
+2. Browser auth path check: login redirects to `auth.flowparity.com` and returns via `/sso` to the app.
+3. API auth check: authenticated API calls succeed with issuer/audience expected by API config.
+4. Security preflight: run `deploy/portainer/Verify-MyBudgetSecurityPreflight.ps1`.
+
+For the full step-by-step and troubleshooting list, use:
+**`deploy/keycloak/OWN-DOMAIN-AUTH-RUNBOOK.md`**
 
 ---
 

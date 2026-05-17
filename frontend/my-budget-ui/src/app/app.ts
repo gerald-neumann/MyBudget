@@ -138,6 +138,7 @@ export class App {
   renameBaselineName = '';
   private renameBaselineOriginalName = '';
   renameBaselineError = '';
+  deleteBaselineError = '';
 
   /** Toggled off/on so the primary router outlet remounts after a household change (full page reload for the current route). */
   readonly routeOutletMounted = signal(true);
@@ -146,7 +147,6 @@ export class App {
   readonly sampleWatermarkTiles = Array.from({ length: 36 }, (_, i) => i);
 
   constructor() {
-    this.syncShellRouteFromRouter();
     this.api
       .getApiBuildInfo()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -316,12 +316,14 @@ export class App {
   }
 
   openNewBaselineFromWorkspaceMenu(): void {
+    this.deleteBaselineError = '';
     this.closeWorkspaceMenu();
     this.closeMobileShellMenu();
     this.openNewBaselineModal();
   }
 
   forkFromWorkspaceMenu(): void {
+    this.deleteBaselineError = '';
     this.forkSelectedBaseline();
     this.closeWorkspaceMenu();
     this.closeMobileShellMenu();
@@ -414,6 +416,7 @@ export class App {
   }
 
   openRenameBaselineFromWorkspaceMenu(): void {
+    this.deleteBaselineError = '';
     this.closeWorkspaceMenu();
     this.closeMobileShellMenu();
     const selected = this.state.selectedBaseline();
@@ -474,6 +477,7 @@ export class App {
   }
 
   setSelectedBaselineAsDefault(): void {
+    this.deleteBaselineError = '';
     this.closeWorkspaceMenu();
     this.closeMobileShellMenu();
     const selected = this.state.selectedBaseline();
@@ -488,6 +492,32 @@ export class App {
         next: () => this.reloadBaselines(selected.id),
         error: () => {
           /* surface minimally: list will stay consistent on next load */
+        }
+      });
+  }
+
+  deleteSelectedBaselineFromWorkspaceMenu(): void {
+    this.closeWorkspaceMenu();
+    this.closeMobileShellMenu();
+    this.deleteBaselineError = '';
+
+    const selected = this.state.selectedBaseline();
+    if (!selected || selected.myAccess !== 'Owner' || selected.isSampleDemo) {
+      return;
+    }
+
+    const baselineName = this.i18n.translateBaselineDisplayName(selected.name);
+    if (!confirm(this.i18n.t('app.confirmDeleteBaseline', { name: baselineName }))) {
+      return;
+    }
+
+    this.api
+      .deleteBaseline(selected.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.reloadBaselines(),
+        error: () => {
+          this.deleteBaselineError = this.i18n.t('app.deleteBaselineFailed');
         }
       });
   }
@@ -864,10 +894,13 @@ export class App {
   private syncShellRouteFromRouter(): void {
     const raw = this.router.url.split('?')[0].split('#')[0];
     const parts = raw.replace(/^\/+/, '').split('/').filter(Boolean);
-    const first = (parts[0] || 'dashboard').toLowerCase();
+    const first = (parts[0] || '').toLowerCase();
+    // Only persist real shell segments (`/` and `/sso` must not overwrite localStorage).
+    this.lastShellRoute.persistFromUrl(this.router.url);
     if (first === 'dashboard' || first === 'budget' || first === 'actuals' || first === 'accounts' || first === 'help') {
       this.shellRouteSegment.set(first);
-      this.lastShellRoute.persistSegment(first);
+    } else if (!first) {
+      this.shellRouteSegment.set(this.lastShellRoute.getRestoreSegment());
     } else {
       this.shellRouteSegment.set('app');
     }

@@ -1,7 +1,7 @@
 {
   "name": "mybudget-ui",
   "description": "MyBudget web UI",
-  "version": "1.0.12",
+  "version": "1.0.14",
   "scripts": {
     "stamp-build-info": "node ../../scripts/stamp-build-info.cjs",
     "sync-version": "node ../../scripts/sync-version.cjs",

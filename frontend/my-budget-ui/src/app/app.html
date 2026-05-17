@@ -96,6 +96,20 @@
                     <span class="fa-sharp fa-solid fa-star leading-none" aria-hidden="true"></span>
                     {{ t('app.setAsDefaultBaseline') }}
                   </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 sm:py-1.5 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] hover:[background-color:var(--app-surface-muted)]"
+                    [disabled]="state.selectedBaseline()?.myAccess !== 'Owner' || state.selectedBaseline()?.isSampleDemo"
+                    (click)="deleteSelectedBaselineFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-trash leading-none" aria-hidden="true"></span>
+                    {{ t('app.deleteBaseline') }}
+                  </button>
+                  @if (deleteBaselineError) {
+                    <p class="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-700" role="alert">
+                      {{ deleteBaselineError }}
+                    </p>
+                  }
                 </div>
               </div>
             }
@@ -442,6 +456,20 @@
                     <span class="fa-sharp fa-solid fa-star leading-none" aria-hidden="true"></span>
                     {{ t('app.setAsDefaultBaseline') }}
                   </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border px-2 py-2 text-xs font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 [border-color:var(--app-border)] [background-color:var(--app-surface-strong)] hover:[background-color:var(--app-surface-muted)]"
+                    [disabled]="state.selectedBaseline()?.myAccess !== 'Owner' || state.selectedBaseline()?.isSampleDemo"
+                    (click)="deleteSelectedBaselineFromWorkspaceMenu()"
+                  >
+                    <span class="fa-sharp fa-solid fa-trash leading-none" aria-hidden="true"></span>
+                    {{ t('app.deleteBaseline') }}
+                  </button>
+                  @if (deleteBaselineError) {
+                    <p class="rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-700" role="alert">
+                      {{ deleteBaselineError }}
+                    </p>
+                  }
                 </div>
               </div>
 

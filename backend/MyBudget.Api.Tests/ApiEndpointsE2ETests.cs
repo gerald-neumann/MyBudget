@@ -38,6 +38,62 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
     }
 
     [Fact]
+    public async Task Patch_planned_amount_zero_succeeds()
+    {
+        var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
+        Assert.NotNull(baselines);
+        var primary = baselines.Single(b => b.IsPrimaryBudget && !b.IsSampleDemo);
+        var year = DateTime.UtcNow.Year;
+
+        var positions = await Http.GetFromJsonAsync<List<PositionRow>>(
+            $"/baselines/{primary.Id}/positions?year={year}",
+            JsonOpts);
+        Assert.NotNull(positions);
+        Assert.NotEmpty(positions);
+        var positionId = positions[0].Id;
+
+        using var patchPlanned = await Http.PatchAsJsonAsync(
+            "/planned-amounts",
+            new BatchUpsertPlannedAmountsRequest(
+                new[] { new PlannedAmountUpsertRequest(positionId, year, 5, 0m) }));
+        patchPlanned.EnsureSuccessStatusCode();
+
+        var updated = await patchPlanned.Content.ReadFromJsonAsync<List<PlannedAmountJson>>(JsonOpts);
+        Assert.NotNull(updated);
+        var row = Assert.Single(updated);
+        Assert.Equal(0m, row.Amount);
+        Assert.True(row.IsOverride);
+    }
+
+    [Fact]
+    public async Task Concurrent_planned_amount_patches_do_not_return_500()
+    {
+        var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
+        Assert.NotNull(baselines);
+        var primary = baselines.Single(b => b.IsPrimaryBudget && !b.IsSampleDemo);
+        var year = DateTime.UtcNow.Year;
+
+        var positions = await Http.GetFromJsonAsync<List<PositionRow>>(
+            $"/baselines/{primary.Id}/positions?year={year}",
+            JsonOpts);
+        Assert.NotNull(positions);
+        Assert.NotEmpty(positions);
+        var positionId = positions[0].Id;
+
+        const int parallel = 25;
+        var body = new BatchUpsertPlannedAmountsRequest(
+            new[] { new PlannedAmountUpsertRequest(positionId, year, 5, 0m) });
+        var tasks = Enumerable
+            .Range(0, parallel)
+            .Select(_ => Http.PatchAsJsonAsync("/planned-amounts", body));
+        var responses = await Task.WhenAll(tasks);
+        foreach (var response in responses)
+        {
+            response.EnsureSuccessStatusCode();
+        }
+    }
+
+    [Fact]
     public async Task Concurrent_reads_of_sample_baseline_positions_do_not_hit_planned_amount_unique_violation()
     {
         var baselines = await Http.GetFromJsonAsync<List<BaselineRow>>("/baselines", JsonOpts);
@@ -375,5 +431,11 @@ public sealed class ApiEndpointsE2ETests(E2EHostFixture host)
     private sealed class ActualJson
     {
         public Guid Id { get; set; }
+    }
+
+    private sealed class PlannedAmountJson
+    {
+        public decimal Amount { get; set; }
+        public bool IsOverride { get; set; }
     }
 }
